@@ -157,6 +157,7 @@ Trang web sẽ có sẵn tại: `https://phshop.pages.dev/`
 ## Lưu ý quan trọng
 
 - Dữ liệu đơn hàng, giỏ hàng, yêu thích được lưu trong `localStorage` của trình duyệt (không có backend server thực).
+- Trạng thái đăng nhập được lưu trong `localStorage` với thời gian hết hạn **48 giờ** — người dùng không bị đăng xuất khi refresh trang hoặc đóng/mở lại tab.
 - Trạng thái đơn hàng có thể được cập nhật từ Admin Dashboard và sẽ hiển thị ngay trên trang `/order` của khách hàng.
 - Email admin mặc định: `nhantk123vip@gmail.com`.
 
