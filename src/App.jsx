@@ -10,12 +10,14 @@ import About from './pages/About'
 import Products from './pages/Products'
 import ProductDetail from './pages/ProductDetail'
 import Cart from './pages/Cart'
+import Wishlist from './pages/Wishlist'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import Checkout from './pages/Checkout'
 import Order from './pages/Order'
 import Admin from './pages/Admin'
 import Contact from './pages/Contact'
+import Profile from './pages/Profile'
 
 const router = createBrowserRouter([
   {
@@ -35,12 +37,14 @@ const router = createBrowserRouter([
       { path: 'products', element: <Products /> },
       { path: 'products/:slug', element: <ProductDetail /> },
       { path: 'cart', element: <Cart /> },
+      { path: 'wishlist', element: <Wishlist /> },
       { path: 'login', element: <Login /> },
       { path: 'register', element: <Register /> },
       { path: 'checkout', element: <Checkout /> },
       { path: 'order', element: <Order /> },
       { path: 'admin', element: <Admin /> },
       { path: 'contact', element: <Contact /> },
+      { path: 'profile', element: <Profile /> },
     ],
   },
   {

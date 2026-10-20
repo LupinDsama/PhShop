@@ -1,21 +1,24 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ShoppingCart, Menu, X, User, LogOut, ShoppingBag } from 'lucide-react'
+import { ShoppingCart, Menu, X, User, LogOut, ShoppingBag, Heart, Bell } from 'lucide-react'
 import { useCartStore } from '../../store/cart'
+import { useWishlistStore } from '../../store/wishlist'
 import { useAuth } from '../../context/AuthContext'
 import { Button } from '../ui/Button'
 
 export default function Navbar() {
   const { count } = useCartStore()
+  const { count: wishCount } = useWishlistStore()
   const { user, logout, isAuthenticated } = useAuth()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
+  const [userOpen, setUserOpen] = useState(false)
 
   return (
     <nav className="sticky top-0 z-50 border-b border-dark-100 bg-white/95 backdrop-blur-md">
       <div className="container-page flex h-16 items-center justify-between">
         <Link to="/" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-brand-600 flex items-center justify-center text-white font-bold">P</div>
+          <div className="w-8 h-8 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white font-bold text-lg">P</div>
           <span className="font-display font-bold text-xl tracking-tight">PhShop</span>
         </Link>
 
@@ -28,25 +31,43 @@ export default function Navbar() {
 
         <div className="flex items-center gap-3">
           <Link
+            to="/wishlist"
+            className="relative p-2 hover:bg-dark-100 rounded-full transition"
+          >
+            <Heart size={20} />
+            {wishCount > 0 && (
+              <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-brand-600 text-[10px] font-bold text-white">
+                {wishCount}
+              </span>
+            )}
+          </Link>
+          <Link
             to="/cart"
             className="relative p-2 hover:bg-dark-100 rounded-full transition"
           >
             <ShoppingBag size={20} />
             {count > 0 && (
-              <span className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white">
+              <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white">
                 {count}
               </span>
             )}
           </Link>
           {isAuthenticated ? (
-            <>
-              <span className="text-sm text-dark-600 hidden sm:block">{user?.email}</span>
-              <Button variant="ghost" size="sm" onClick={() => { logout(); navigate('/login') }}>
-                <LogOut size={16} /> /{user?.email.split('@')[0]}
-              </Button>
-            </>
+            <div className="relative">
+              <button onClick={() => setUserOpen((o) => !o)} className="flex items-center gap-2 p-2 hover:bg-dark-100 rounded-full transition">
+                <User size={20} />
+                <span className="text-sm font-medium text-dark-700 hidden sm:block">{user?.email.split('@')[0]}</span>
+              </button>
+              {userOpen && (
+                <div className="absolute right-0 mt-2 w-48 rounded-2xl border border-dark-100 bg-white shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <Link to="/profile" className="block px-4 py-2 text-sm text-dark-700 hover:bg-dark-50 transition">Hồ sơ của tôi</Link>
+                  <Link to="/order" className="block px-4 py-2 text-sm text-dark-700 hover:bg-dark-50 transition">Đơn hàng của tôi</Link>
+                  <button onClick={() => { logout(); setUserOpen(false); navigate('/login') }} className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition">Đăng xuất</button>
+                </div>
+              )}
+            </div>
           ) : (
-            <Button asChild size="sm" asChild>
+            <Button size="sm" asChild>
               <Link to="/login">Đăng nhập</Link>
             </Button>
           )}
@@ -59,12 +80,13 @@ export default function Navbar() {
       {open && (
         <div className="md:hidden border-t border-dark-100 bg-white">
           <div className="container-page px-4 py-4 space-y-4">
-            {['Trang chủ', 'Sản phẩm', 'Giới thiệu', 'Liên hệ', 'Giỏ hàng'].map((label) => (
+            {['Trang chủ', 'Sản phẩm', 'Giới thiệu', 'Liên hệ', 'Giỏ hàng', 'Yêu thích'].map((label) => (
               <button
                 key={label}
                 onClick={() => {
                   setOpen(false)
-                  navigate(label === 'Trang chủ' ? '/' : label.toLowerCase().replace(' ', '-'))
+                  const target = label === 'Trang chủ' ? '/' : label === 'Sản phẩm' ? '/products' : label === 'Giới thiệu' ? '/about' : label === 'Liên hệ' ? '/contact' : label === 'Giỏ hàng' ? '/cart' : '/wishlist'
+                  navigate(target)
                 }}
                 className="text-left py-3 text-sm hover:text-brand-600 transition"
               >
@@ -72,13 +94,13 @@ export default function Navbar() {
               </button>
             ))}
             {isAuthenticated ? (
-              <button onClick={() => { logout(); navigate('/login') }} className="text-left py-3 text-sm text-red-600 hover:text-red-500 transition">
-                Đăng xuất
-              </button>
+              <>
+                <Link to="/profile" className="block py-3 text-sm hover:text-brand-600 transition">Hồ sơ</Link>
+                <Link to="/order" className="block py-3 text-sm hover:text-brand-600 transition">Đơn hàng</Link>
+                <button onClick={() => { logout(); navigate('/login') }} className="block py-3 text-sm text-red-600 hover:text-red-500 transition">Đăng xuất</button>
+              </>
             ) : (
-              <Link to="/login" className="block py-3 text-sm hover:text-brand-600 transition">
-                Đăng nhập / Đăng ký
-              </Link>
+              <Link to="/login" className="block py-3 text-sm hover:text-brand-600 transition">Đăng nhập / Đăng ký</Link>
             )}
           </div>
         </div>
