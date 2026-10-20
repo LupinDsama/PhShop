@@ -9,7 +9,7 @@ import { Button } from '../ui/Button'
 export default function Navbar() {
   const { count } = useCartStore()
   const { count: wishCount } = useWishlistStore()
-  const { user, logout, isAuthenticated } = useAuth()
+  const { user, logout, isAuthenticated, isAdmin } = useAuth()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
