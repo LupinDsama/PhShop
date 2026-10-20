@@ -72,21 +72,23 @@ export default function Products() {
             </div>
           ) : (
             filtered.map((p) => (
-              <Card key={p.id} className="cursor-pointer group" onClick={() => navigate(`/products/${p.slug}`)}>
-                <div className="aspect-[4/5] rounded-xl overflow-hidden mb-4 bg-gray-100 relative">
-                  <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
-                </div>
-                <div className="space-y-1">
-                  <h3 className="font-semibold text-gray-900 group-hover:text-brand-600 transition">{p.name}</h3>
-                  <p className="text-sm text-gray-500 line-clamp-2">{p.description}</p>
-                </div>
-                <div className="mt-4 flex items-baseline gap-2">
-                  <span className="text-lg font-bold text-brand-600">{formatPrice(p.base_price)}</span>
-                </div>
-                <div className="mt-3 flex items-center gap-2 text-xs text-gray-400">
-                  <Star size={12} className="text-amber-400" /> 4.8
-                </div>
-              </Card>
+              <div key={p.id} className="cursor-pointer group" onClickCapture={() => navigate(`/products/${p.slug}`)}>
+                <Card className="group">
+                  <div className="aspect-[4/5] rounded-xl overflow-hidden mb-4 bg-gray-100 relative">
+                    <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="font-semibold text-gray-900 group-hover:text-brand-600 transition">{p.name}</h3>
+                    <p className="text-sm text-gray-500 line-clamp-2">{p.description}</p>
+                  </div>
+                  <div className="mt-4 flex items-baseline gap-2">
+                    <span className="text-lg font-bold text-brand-600">{formatPrice(p.base_price)}</span>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2 text-xs text-gray-400">
+                    <Star size={12} className="text-amber-400" /> 4.8
+                  </div>
+                </Card>
+              </div>
             ))
           )}
         </div>

@@ -1,5 +1,5 @@
 import React from 'react'
-import { createBrowserRouter, Outlet, RouterProvider } from 'react-router-dom'
+import { createBrowserRouter, Outlet, RouterProvider, useLocation } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import Navbar from './components/layout/Navbar'
 import Footer from './components/layout/Footer'
@@ -55,6 +55,8 @@ const router = createBrowserRouter([
 
 export default function App() {
   const [showIntro, setShowIntro] = React.useState(false)
+  const location = useLocation()
+
   React.useEffect(() => {
     if (typeof window !== 'undefined' && window.location.pathname === '/') {
       if (!sessionStorage.getItem('phshop-intro-seen')) {
@@ -63,6 +65,12 @@ export default function App() {
       }
     }
   }, [])
+
+  // Tự động cuộn lên đầu khi thay đổi trang
+  React.useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [location])
+
   if (showIntro) return <Intro onFinish={() => setShowIntro(false)} />
   return <RouterProvider router={router} />
 }
