@@ -1,70 +1,25 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { useOrderStore } from '../store/orders'
 import { Package, Clock, Truck, ArrowRight, Mail, CheckCircle2, XCircle } from 'lucide-react'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 
 export default function Order() {
-  const { isAuthenticated } = useAuth()
+  const { user, isAuthenticated } = useAuth()
   const navigate = useNavigate()
+  const { orders, statusLabel, statusOrder } = useOrderStore((state) => ({
+    orders: state.getOrdersByUser(user?.email || ''),
+    statusLabel: state.statusLabel,
+    statusOrder: state.statusOrder,
+  }))
 
   useEffect(() => {
     if (!isAuthenticated) navigate('/login')
   }, [isAuthenticated, navigate])
 
   if (!isAuthenticated) return null
-
-  const orders = [
-    {
-      id: 'PH20261020001',
-      number: 'PH20261020001',
-      customerEmail: 'nhantk123vip@gmail.com',
-      status: 'hoan_tat',
-      date: '20/10/2026',
-      total: 570000,
-      items: 2,
-      progress: 100,
-      note: 'Giao hàng vào sáng sớm',
-      payment: 'COD',
-    },
-    {
-      id: 'PH20261018002',
-      number: 'PH20261018002',
-      customerEmail: 'nhantk123vip@gmail.com',
-      status: 'dang_giao',
-      date: '18/10/2026',
-      total: 250000,
-      items: 1,
-      progress: 80,
-      note: 'Đóng gói quà tặng',
-      payment: 'MoMo',
-    },
-    {
-      id: 'PH20261015003',
-      number: 'PH20261015003',
-      customerEmail: 'nhantk123vip@gmail.com',
-      status: 'dang_san_xuat',
-      date: '15/10/2026',
-      total: 420000,
-      items: 1,
-      progress: 50,
-      note: 'Sản xuất theo yêu cầu',
-      payment: 'COD',
-    },
-    {
-      id: 'PH20261012004',
-      number: 'PH20261012004',
-      customerEmail: 'nhantk123vip@gmail.com',
-      status: 'da_huy',
-      date: '12/10/2026',
-      total: 180000,
-      items: 1,
-      progress: 0,
-      note: 'Khách hàng hủy',
-      payment: 'MoMo',
-    },
-  ]
 
   const statusConfig = {
     moi_tao: { label: 'Mới tạo', color: 'bg-blue-100 text-blue-700', icon: <Clock size={14} />, step: 25 },
@@ -74,6 +29,8 @@ export default function Order() {
     hoan_tat: { label: 'Hoàn tất', color: 'bg-green-100 text-green-700', icon: <CheckCircle2 size={14} />, step: 100 },
     da_huy: { label: 'Đã hủy', color: 'bg-red-100 text-red-700', icon: <XCircle size={14} />, step: 0 },
   }
+
+  const sortedOrders = [...orders].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
 
   return (
     <div className="section">
@@ -85,7 +42,7 @@ export default function Order() {
 
         <div className="grid lg:grid-cols-12 gap-8">
           <div className="lg:col-span-8">
-            {orders.length === 0 ? (
+            {sortedOrders.length === 0 ? (
               <div className="max-w-md mx-auto text-center py-20">
                 <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4 text-gray-400">
                   <Package size={32} />
@@ -98,17 +55,17 @@ export default function Order() {
               </div>
             ) : (
               <>
-                {orders.map((o) => {
+                {sortedOrders.map((o) => {
                   const cfg = statusConfig[o.status]
                   return (
                     <Card key={o.id} className="p-6 mb-4">
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-2">
                           <Package className="w-5 h-5 text-brand-600" />
-                          <span className="font-semibold text-dark-900">{o.number}</span>
+                          <span className="font-semibold text-dark-900">{o.id}</span>
                         </div>
                         <span className={`text-xs font-semibold px-2 py-1 rounded-full ${cfg.color}`}>
-                          {cfg.label}
+                          {statusLabel[o.status] || cfg.label}
                         </span>
                       </div>
                       <div className="space-y-3 mb-4">
@@ -185,17 +142,17 @@ export default function Order() {
                 năng lực sản xuất. Bạn sẽ được cập nhật trạng thái qua email.
               </p>
               <div className="space-y-3 text-sm">
-                {[
-                  { label: 'Mới tạo', desc: 'Đơn hàng đã được ghi nhận, chờ xác nhận.' },
-                  { label: 'Đã xác nhận', desc: 'Đơn hàng đã được xác nhận và đang chuẩn bị.' },
-                  { label: 'Đang sản xuất', desc: 'Sản phẩm đang được in 3D theo yêu cầu.' },
-                  { label: 'Đang giao', desc: 'Đơn hàng đang trên đường giao đến bạn.' },
-                  { label: 'Hoàn tất', desc: 'Đơn hàng đã giao thành công.' },
-                  { label: 'Đã hủy', desc: 'Đơn hàng đã bị hủy.' },
-                ].map((s, i) => (
+                {statusOrder.map((s, i) => (
                   <div key={i} className="flex items-start gap-2">
-                    <span className="text-xs font-medium text-dark-700">{s.label}</span>
-                    <span className="text-xs text-dark-500 ml-1">{s.desc}</span>
+                    <span className="text-xs font-medium text-dark-700">{statusLabel[s]}</span>
+                    <span className="text-xs text-dark-500 ml-1">{[
+                      'Đơn hàng đã được ghi nhận, chờ xác nhận.',
+                      'Đơn hàng đã được xác nhận và đang chuẩn bị.',
+                      'Sản phẩm đang được in 3D theo yêu cầu.',
+                      'Đơn hàng đang trên đường giao đến bạn.',
+                      'Đơn hàng đã giao thành công.',
+                      'Đơn hàng đã bị hủy.',
+                    ][i]}</span>
                   </div>
                 ))}
               </div>

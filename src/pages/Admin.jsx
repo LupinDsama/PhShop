@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useOrderStore } from '../store/orders'
 import { Package, Truck, ShieldCheck, Star, Settings, Users, Clock, Mail, Phone, ChevronDown } from 'lucide-react'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -26,6 +27,11 @@ const statusBadge = {
 
 export default function Admin() {
   const { isAuthenticated, isAdmin } = useAuth()
+  const { orders, updateOrderStatus, statusLabel } = useOrderStore((state) => ({
+    orders: state.getAllOrders(),
+    updateOrderStatus: state.updateOrderStatus,
+    statusLabel: state.statusLabel,
+  }))
   const [tab, setTab] = useState('dashboard')
   const [openStatus, setOpenStatus] = useState(null)
 
@@ -50,19 +56,14 @@ export default function Admin() {
     )
   }
 
-  const stats = [
-    { label: 'Tổng đơn hàng', value: '124', change: '+12%', icon: <Package className="w-5 h-5" />, color: 'text-brand-600' },
-    { label: 'Doanh thu tháng', value: '45.200.000 ₫', change: '+8%', icon: <ShieldCheck className="w-5 h-5" />, color: 'text-green-600' },
-    { label: 'Sản phẩm active', value: '18', change: '+3', icon: <Star className="w-5 h-5" />, color: 'text-blue-600' },
-    { label: 'Khách hàng mới', value: '32', change: '+15%', icon: <Users className="w-5 h-5" />, color: 'text-purple-600' },
-  ]
+  const sortedOrders = [...orders].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  const totalRevenue = sortedOrders.reduce((sum, o) => sum + o.total, 0)
 
-  const orders = [
-    { id: 'PH001', customer: 'Nguyễn Văn A', email: 'nguyenvana@gmail.com', total: '250.000 ₫', status: 'hoan_tat', date: '20/10/2026' },
-    { id: 'PH002', customer: 'Trần Thị B', email: 'tranthib@gmail.com', total: '420.000 ₫', status: 'dang_giao', date: '19/10/2026' },
-    { id: 'PH003', customer: 'Lê Văn C', email: 'levanc@gmail.com', total: '180.000 ₫', status: 'dang_san_xuat', date: '18/10/2026' },
-    { id: 'PH004', customer: 'Phạm Văn D', email: 'phamvand@gmail.com', total: '320.000 ₫', status: 'moi_tao', date: '17/10/2026' },
-    { id: 'PH005', customer: 'Hoàng Thị E', email: 'hoangtie@gmail.com', total: '150.000 ₫', status: 'da_huy', date: '15/10/2026' },
+  const stats = [
+    { label: 'Tổng đơn hàng', value: sortedOrders.length.toString(), change: '+12%', icon: <Package className="w-5 h-5" />, color: 'text-brand-600' },
+    { label: 'Doanh thu tháng', value: new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalRevenue), change: '+8%', icon: <ShieldCheck className="w-5 h-5" />, color: 'text-green-600' },
+    { label: 'Sản phẩm active', value: '18', change: '+3%', icon: <Star className="w-5 h-5" />, color: 'text-blue-600' },
+    { label: 'Khách hàng mới', value: new Set(sortedOrders.map(o => o.customerEmail)).size.toString(), change: '+15%', icon: <Users className="w-5 h-5" />, color: 'text-purple-600' },
   ]
 
   const tabs = [
@@ -75,7 +76,7 @@ export default function Admin() {
 
   const handleChangeStatus = (orderId, newStatus) => {
     setOpenStatus(null)
-    alert(`Đã cập nhật đơn hàng ${orderId} thành "${statusOptions.find(s => s.value === newStatus)?.label}"`)
+    updateOrderStatus(orderId, newStatus)
   }
 
   return (
@@ -130,10 +131,10 @@ export default function Admin() {
             <Card className="p-6">
               <h3 className="font-bold text-dark-900 mb-4">Hoạt động gần đây</h3>
               <div className="space-y-4">
-                {['Đơn hàng mới #PH001', 'Khách hàng mới đăng ký', 'Đơn hàng #PH002 đã giao', 'Sản phẩm mới được thêm'].map((item, i) => (
+                {sortedOrders.slice(0, 4).map((o, i) => (
                   <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-dark-50 border border-dark-100">
                     <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-600 text-xs font-bold">{i + 1}</div>
-                    <div className="text-sm text-dark-600">{item}</div>
+                    <div className="text-sm text-dark-600">Đơn hàng mới #{o.id}</div>
                   </div>
                 ))}
               </div>
@@ -141,15 +142,12 @@ export default function Admin() {
             <Card className="p-6">
               <h3 className="font-bold text-dark-900 mb-4">Thống kê đơn hàng</h3>
               <div className="space-y-4 text-sm">
-                {[
-                  ['Mới tạo', '5', 'text-blue-600'],
-                  ['Đang xử lý', '12', 'text-amber-600'],
-                  ['Đang giao', '8', 'text-purple-600'],
-                  ['Hoàn tất', '99', 'text-green-600'],
-                ].map(([label, count, color]) => (
-                  <div key={label} className="flex justify-between">
-                    <span className="text-dark-500">{label}</span>
-                    <span className={`font-medium ${color}`}>{count}</span>
+                {statusOptions.map((s) => (
+                  <div key={s.value} className="flex justify-between">
+                    <span className="text-dark-500">{s.label}</span>
+                    <span className={`font-medium ${s.color}`}>
+                      {sortedOrders.filter(o => o.status === s.value).length}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -172,15 +170,15 @@ export default function Admin() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-dark-100">
-                {orders.map((o) => (
+                {sortedOrders.map((o) => (
                   <tr key={o.id} className="hover:bg-dark-50 transition">
                     <td className="px-4 py-3 font-medium text-dark-900">{o.id}</td>
-                    <td className="px-4 py-3 text-dark-600">{o.customer}</td>
-                    <td className="px-4 py-3 text-sm text-dark-500">{o.email}</td>
-                    <td className="px-4 py-3 font-medium text-dark-900">{o.total}</td>
+                    <td className="px-4 py-3 text-dark-600">{o.customerName || o.customerEmail.split('@')[0]}</td>
+                    <td className="px-4 py-3 text-sm text-dark-500">{o.customerEmail}</td>
+                    <td className="px-4 py-3 font-medium text-dark-900">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(o.total)}</td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusBadge[o.status]}`}>
-                        {statusOptions.find(s => s.value === o.status)?.label}
+                        {statusLabel[o.status] || statusOptions.find(s => s.value === o.status)?.label}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-dark-500">{o.date}</td>

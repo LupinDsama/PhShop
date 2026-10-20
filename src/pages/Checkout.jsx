@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useCartStore } from '../store/cart'
+import { useOrderStore } from '../store/orders'
 import { useAuth } from '../context/AuthContext'
 import { formatPrice } from '../data/products'
 import { Mail, Phone, Truck, CreditCard, CheckCircle2, ArrowRight } from 'lucide-react'
@@ -9,8 +10,13 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 
 export default function Checkout() {
-  const { items, total, clearCart } = useCartStore()
-  const { isAuthenticated } = useAuth()
+  const { items, total, clearCart } = useCartStore((state) => ({
+    items: state.items,
+    total: state.total,
+    clearCart: state.clearCart,
+  }))
+  const { user, isAuthenticated } = useAuth()
+  const { addOrder } = useOrderStore((state) => ({ addOrder: state.addOrder }))
   const navigate = useNavigate()
   const [step, setStep] = useState('info')
   const [form, setForm] = useState({
@@ -26,7 +32,30 @@ export default function Checkout() {
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    alert(`Đơn hàng đã được đặt thành công!\nMã đơn: PH${Date.now().toString().slice(-6)}\nTổng: ${formatPrice(total)}`)
+    const order = {
+      id: `PH${Date.now().toString().slice(-6)}`,
+      customerEmail: user.email,
+      customerName: form.recipient,
+      customerPhone: form.phone,
+      address: form.address,
+      note: form.note || '',
+      payment: form.payment,
+      status: 'moi_tao',
+      date: new Date().toLocaleDateString('vi-VN'),
+      total,
+      items: items.length,
+      itemsDetail: items.map((i) => ({
+        variantId: i.variantId,
+        name: i.variant.name || 'Sản phẩm',
+        color: i.variant.color,
+        size: i.variant.size,
+        price: i.variant.price,
+        quantity: i.quantity,
+        note: i.note || '',
+      })),
+      createdAt: Date.now(),
+    }
+    addOrder(order)
     clearCart()
     navigate('/order')
   }
