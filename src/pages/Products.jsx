@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useCartStore } from '../store/cart'
 import { useWishlistStore } from '../store/wishlist'
 import { products, formatPrice, categories } from '../data/products'
