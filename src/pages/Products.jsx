@@ -72,7 +72,7 @@ export default function Products() {
             </div>
           ) : (
             filtered.map((p) => (
-              <div key={p.id} className="cursor-pointer group" onClickCapture={() => navigate(`/products/${p.slug}`)}>
+              <Link key={p.id} to={`/products/${p.slug}`} className="block cursor-pointer group">
                 <Card className="group">
                   <div className="aspect-[4/5] rounded-xl overflow-hidden mb-4 bg-gray-100 relative">
                     <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
@@ -88,7 +88,7 @@ export default function Products() {
                     <Star size={12} className="text-amber-400" /> 4.8
                   </div>
                 </Card>
-              </div>
+              </Link>
             ))
           )}
         </div>
