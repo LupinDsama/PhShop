@@ -7,8 +7,8 @@ import { useAuth } from '../../context/AuthContext'
 import { Button } from '../ui/Button'
 
 export default function Navbar() {
-  const { count } = useCartStore()
-  const { count: wishCount } = useWishlistStore()
+  const count = useCartStore((state) => state.count)
+  const wishCount = useWishlistStore((state) => state.count)
   const { user, logout, isAuthenticated, isAdmin } = useAuth()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)

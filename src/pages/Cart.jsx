@@ -28,7 +28,13 @@ function ShieldCheckIcon({ size = 20, className }) {
 }
 
 export default function Cart() {
-  const { items, removeItem, updateQuantity, updateNote, total, count, clearCart } = useCartStore()
+  const items = useCartStore((state) => state.items)
+  const removeItem = useCartStore((state) => state.removeItem)
+  const updateQuantity = useCartStore((state) => state.updateQuantity)
+  const updateNote = useCartStore((state) => state.updateNote)
+  const total = useCartStore((state) => state.total)
+  const count = useCartStore((state) => state.count)
+  const clearCart = useCartStore((state) => state.clearCart)
   const { isAuthenticated } = useAuth()
   const navigate = useNavigate()
 
