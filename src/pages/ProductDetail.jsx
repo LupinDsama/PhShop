@@ -38,7 +38,7 @@ export default function ProductDetail() {
               <img
                 src={product.images[0]}
                 alt={product.name}
-                className="rounded-2xl overflow-hidden border border-dark-100 shadow-sm w-full h-auto object-cover"
+                className="rounded-2xl overflow-hidden border border-gray-200 shadow-sm w-full h-auto object-cover"
               />
               <div className="absolute inset-0 bg-black/20 group-hover:bg-black/0 transition-opacity opacity-0 group-hover:opacity-100 flex items-center justify-center">
                 <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center text-brand-600">
@@ -52,7 +52,7 @@ export default function ProductDetail() {
                   key={i}
                   src={img}
                   alt={product.name}
-                  className="rounded-xl border border-dark-100 shadow-sm w-full h-32 object-cover cursor-pointer hover:border-brand-300 transition"
+                  className="rounded-xl border border-gray-200 shadow-sm w-full h-32 object-cover cursor-pointer hover:border-brand-300 transition"
                 />
               ))}
             </div>
@@ -65,26 +65,26 @@ export default function ProductDetail() {
                 <span className="text-xs font-semibold text-brand-600 uppercase tracking-wider">
                   {product.category}
                 </span>
-                <span className="text-xs text-dark-400">•</span>
-                <span className="text-xs text-dark-400">Mã: {currentVariant.sku}</span>
+                <span className="text-xs text-gray-400">•</span>
+                <span className="text-xs text-gray-400">Mã: {currentVariant.sku}</span>
               </div>
-              <h1 className="text-3xl md:text-4xl font-bold text-dark-900 mb-2">{product.name}</h1>
+              <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">{product.name}</h1>
               <div className="flex items-center gap-2 mb-4">
                 {[...Array(5)].map((_, i) => (
-                  <Star key={i} size={20} className={`text-amber-400 ${i < 4 ? 'fill-amber-400' : 'text-dark-200'}`} />
+                  <Star key={i} size={20} className={`text-amber-400 ${i < 4 ? 'fill-amber-400' : 'text-gray-200'}`} />
                 ))}
-                <span className="text-sm text-dark-500 ml-1">4.8 (128 đánh giá)</span>
+                <span className="text-sm text-gray-500 ml-1">4.8 (128 đánh giá)</span>
               </div>
-              <p className="text-dark-500 mb-6 leading-relaxed">{product.description}</p>
+              <p className="text-gray-500 mb-6 leading-relaxed">{product.description}</p>
               <div className="flex items-baseline gap-2 mb-2">
                 <span className="text-3xl font-bold text-brand-600">
                   {formatPrice(currentVariant.price)}
                 </span>
                 {currentVariant.price !== product.base_price && (
-                  <span className="text-sm text-dark-400 line-through">{formatPrice(product.base_price)}</span>
+                  <span className="text-sm text-gray-400 line-through">{formatPrice(product.base_price)}</span>
                 )}
               </div>
-              <div className="flex items-center gap-2 text-sm text-dark-500">
+              <div className="flex items-center gap-2 text-sm text-gray-500">
                 <div className="flex items-center gap-1">
                   <span className="w-2 h-2 rounded-full bg-brand-500"></span>
                   <span>Còn hàng: {currentVariant.stock}</span>
@@ -94,7 +94,7 @@ export default function ProductDetail() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-dark-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Chọn biến thể
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -105,11 +105,11 @@ export default function ProductDetail() {
                       className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-all ${
                         selectedVariant?.id === v.id
                           ? 'border-brand-600 bg-brand-50 text-brand-600 shadow-sm'
-                          : 'border-dark-200 bg-white text-dark-600 hover:border-dark-300'
+                          : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
                       }`}
                     >
                       {v.color} • {v.size}
-                      <span className="block text-xs text-dark-400 mt-1">{formatPrice(v.price)}</span>
+                      <span className="block text-xs text-gray-400 mt-1">{formatPrice(v.price)}</span>
                       {v.stock === 0 && <span className="text-xs text-red-500 mt-1">Hết hàng</span>}
                     </button>
                   ))}
@@ -117,7 +117,7 @@ export default function ProductDetail() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-dark-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Số lượng
                 </label>
                 <div className="flex items-center gap-2 max-w-xs">
@@ -138,7 +138,7 @@ export default function ProductDetail() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-dark-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Ghi chú (tùy chọn)
                 </label>
                 <Input
@@ -149,7 +149,7 @@ export default function ProductDetail() {
               </div>
             </div>
 
-            <div className="pt-6 border-t border-dark-100">
+            <div className="pt-6 border-t border-gray-200">
               <Button
                 onClick={() => {
                   if (!currentVariant || currentVariant.stock === 0) return
@@ -171,14 +171,14 @@ export default function ProductDetail() {
               </Button>
               <button
                 onClick={() => toggleItem(product)}
-                className="w-full py-3 rounded-xl border border-dark-200 bg-white text-dark-600 font-medium hover:bg-brand-50 hover:border-brand-300 transition flex items-center justify-center gap-2"
+                className="w-full py-3 rounded-xl border border-gray-200 bg-white text-gray-600 font-medium hover:bg-brand-50 hover:border-brand-300 transition flex items-center justify-center gap-2"
               >
-                <Heart size={18} className={`${isWishlisted ? 'fill-brand-600 text-brand-600' : 'text-dark-500'}`} />
+                <Heart size={18} className={`${isWishlisted ? 'fill-brand-600 text-brand-600' : 'text-gray-500'}`} />
                 {isWishlisted ? 'Đã lưu yêu thích' : 'Lưu vào yêu thích'}
               </button>
             </div>
 
-            <div className="grid grid-cols-3 gap-4 text-sm text-dark-500 mt-6">
+            <div className="grid grid-cols-3 gap-4 text-sm text-gray-500 mt-6">
               <div className="flex items-center gap-2">
                 <Truck size={14} className="text-brand-600" />
                 <span>Giao hàng nhanh</span>
@@ -199,10 +199,10 @@ export default function ProductDetail() {
         <div className="mt-16">
           <div className="flex items-center gap-2 mb-6">
             <div className="w-1 h-4 bg-brand-600 rounded-full"></div>
-            <h3 className="text-lg font-bold text-dark-900">Mô tả chi tiết</h3>
+            <h3 className="text-lg font-bold text-gray-900">Mô tả chi tiết</h3>
           </div>
-          <div className="rounded-2xl border border-dark-100 bg-white p-8 mb-12">
-            <p className="text-dark-600 leading-relaxed">
+          <div className="rounded-2xl border border-gray-200 bg-white p-8 mb-12">
+            <p className="text-gray-600 leading-relaxed">
               {product.name} là sản phẩm in 3D được sản xuất với độ phân giải cao,
               chi tiết sắc nét, phù hợp cho sưu tầm, trang trí hoặc quà tặng ý nghĩa.
               Bạn có thể chọn màu sắc, kích thước và thêm ghi chú riêng khi đặt hàng.
@@ -213,17 +213,17 @@ export default function ProductDetail() {
 
           <div className="flex items-center gap-2 mb-6">
             <div className="w-1 h-4 bg-brand-600 rounded-full"></div>
-            <h3 className="text-lg font-bold text-dark-900">Đánh giá khách hàng</h3>
+            <h3 className="text-lg font-bold text-gray-900">Đánh giá khách hàng</h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {[1, 2, 3].map((i) => (
               <Card key={i} className="p-6">
                 <div className="flex items-center gap-2 mb-3">
-                  <div className="w-8 h-8 rounded-full bg-dark-100 flex items-center justify-center overflow-hidden">
-                    <span className="text-xs font-medium text-dark-600">KH</span>
+                  <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center overflow-hidden">
+                    <span className="text-xs font-medium text-gray-600">KH</span>
                   </div>
                   <div>
-                    <div className="text-sm font-medium text-dark-900">Khách hàng {i}</div>
+                    <div className="text-sm font-bold text-gray-900">Khách hàng {i}</div>
                     <div className="flex gap-1 text-xs text-amber-400">
                       {[...Array(5)].map((_, j) => (
                         <Star key={j} size={14} className="fill-amber-400" />
@@ -231,7 +231,7 @@ export default function ProductDetail() {
                     </div>
                   </div>
                 </div>
-                <p className="text-sm text-dark-600 leading-relaxed">
+                <p className="text-sm text-gray-600 leading-relaxed">
                   "Sản phẩm rất đẹp, chi tiết sắc nét, giao hàng nhanh. Sẽ mua thêm lần sau!"
                 </p>
               </Card>
@@ -241,14 +241,14 @@ export default function ProductDetail() {
 
         {/* Related products */}
         <div className="mt-16">
-          <h3 className="text-xl font-bold text-dark-900 mb-6">Sản phẩm tương tự</h3>
+          <h3 className="text-xl font-bold text-gray-900 mb-6">Sản phẩm tương tự</h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-6">
             {products.filter((p) => p.id !== product.id && p.category === product.category).slice(0, 4).map((p) => (
               <Card key={p.id} className="cursor-pointer group" onClick={() => navigate(`/products/${p.slug}`)}>
-                <div className="aspect-[4/5] rounded-xl overflow-hidden mb-4 bg-dark-100 relative">
+                <div className="aspect-[4/5] rounded-xl overflow-hidden mb-4 bg-gray-100 relative">
                   <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
                 </div>
-                <h3 className="font-semibold text-dark-900 group-hover:text-brand-600 transition">{p.name}</h3>
+                <h3 className="font-semibold text-gray-900 group-hover:text-brand-600 transition">{p.name}</h3>
                 <div className="mt-2 flex items-baseline gap-2">
                   <span className="text-lg font-bold text-brand-600">{formatPrice(p.base_price)}</span>
                 </div>
