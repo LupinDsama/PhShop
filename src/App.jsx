@@ -19,6 +19,14 @@ import Admin from './pages/Admin'
 import Contact from './pages/Contact'
 import Profile from './pages/Profile'
 
+function ScrollToTop({ children }) {
+  const location = useLocation()
+  React.useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [location])
+  return children
+}
+
 const router = createBrowserRouter([
   {
     path: '/',
@@ -26,7 +34,7 @@ const router = createBrowserRouter([
       <AuthProvider>
         <div className="min-h-screen flex flex-col">
           <Navbar />
-          <main className="flex-grow pt-4 pb-12"><Outlet /></main>
+          <main className="flex-grow pt-4 pb-12"><ScrollToTop><Outlet /></ScrollToTop></main>
           <Footer />
         </div>
       </AuthProvider>
@@ -55,7 +63,6 @@ const router = createBrowserRouter([
 
 export default function App() {
   const [showIntro, setShowIntro] = React.useState(false)
-  const location = useLocation()
 
   React.useEffect(() => {
     if (typeof window !== 'undefined' && window.location.pathname === '/') {
@@ -65,11 +72,6 @@ export default function App() {
       }
     }
   }, [])
-
-  // Tự động cuộn lên đầu khi thay đổi trang
-  React.useEffect(() => {
-    window.scrollTo(0, 0)
-  }, [location])
 
   if (showIntro) return <Intro onFinish={() => setShowIntro(false)} />
   return <RouterProvider router={router} />
