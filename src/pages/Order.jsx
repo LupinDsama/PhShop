@@ -9,11 +9,9 @@ import { Button } from '../components/ui/Button'
 export default function Order() {
   const { user, isAuthenticated } = useAuth()
   const navigate = useNavigate()
-  const { orders, statusLabel, statusOrder } = useOrderStore((state) => ({
-    orders: state.getOrdersByUser(user?.email || ''),
-    statusLabel: state.statusLabel,
-    statusOrder: state.statusOrder,
-  }))
+  const orders = useOrderStore((state) => state.getOrdersByUser(user?.email || ''))
+  const statusLabel = useOrderStore((state) => state.statusLabel)
+  const statusOrder = useOrderStore((state) => state.statusOrder)
 
   useEffect(() => {
     if (!isAuthenticated) navigate('/login')

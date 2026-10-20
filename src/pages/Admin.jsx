@@ -27,11 +27,9 @@ const statusBadge = {
 
 export default function Admin() {
   const { isAuthenticated, isAdmin } = useAuth()
-  const { orders, updateOrderStatus, statusLabel } = useOrderStore((state) => ({
-    orders: state.getAllOrders(),
-    updateOrderStatus: state.updateOrderStatus,
-    statusLabel: state.statusLabel,
-  }))
+  const orders = useOrderStore((state) => state.getAllOrders())
+  const updateOrderStatus = useOrderStore((state) => state.updateOrderStatus)
+  const statusLabel = useOrderStore((state) => state.statusLabel)
   const [tab, setTab] = useState('dashboard')
   const [openStatus, setOpenStatus] = useState(null)
 

@@ -10,11 +10,9 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 
 export default function Checkout() {
-  const { items, total, clearCart } = useCartStore((state) => ({
-    items: state.items,
-    total: state.total,
-    clearCart: state.clearCart,
-  }))
+  const items = useCartStore((state) => state.items)
+  const total = useCartStore((state) => state.total)
+  const clearCart = useCartStore((state) => state.clearCart)
   const { user, isAuthenticated } = useAuth()
   const { addOrder } = useOrderStore((state) => ({ addOrder: state.addOrder }))
   const navigate = useNavigate()
