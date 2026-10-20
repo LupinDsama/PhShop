@@ -1,6 +1,6 @@
 export default function Footer() {
   return (
-    <footer className="border-t border-dark-100 bg-dark-900 text-dark-300 mt-auto">
+    <footer className="border-t border-dark-800 bg-dark-900 text-dark-200 mt-auto">
       <div className="container-page py-12 md:py-16">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-10">
           <div>
@@ -14,18 +14,18 @@ export default function Footer() {
           </div>
           <div>
             <h4 className="text-white font-semibold mb-4">Sản phẩm</h4>
-            <ul className="space-y-2 text-sm text-dark-400">
-              <li><a href="#" className="hover:text-white transition">Figure & Nhân vật</a></li>
-              <li><a href="#" className="hover:text-white transition">Trang trí & Thư tượng</a></li>
-              <li><a href="#" className="hover:text-white transition">Sưu tầm</a></li>
+            <ul className="space-y-2 text-sm text-dark-300">
+              <li><a href="#" className="text-dark-300 hover:text-brand-400 transition">Figure & Nhân vật</a></li>
+              <li><a href="#" className="text-dark-300 hover:text-brand-400 transition">Trang trí & Thư tượng</a></li>
+              <li><a href="#" className="text-dark-300 hover:text-brand-400 transition">Sưu tầm</a></li>
             </ul>
           </div>
           <div>
             <h4 className="text-white font-semibold mb-4">Hỗ trợ</h4>
-            <ul className="space-y-2 text-sm text-dark-400">
-              <li><a href="#" className="hover:text-white transition">Hướng dẫn mua hàng</a></li>
-              <li><a href="#" className="hover:text-white transition">Chính sách đổi trả</a></li>
-              <li><a href="#" className="hover:text-white transition">Liên hệ</a></li>
+            <ul className="space-y-2 text-sm text-dark-300">
+              <li><a href="#" className="text-dark-300 hover:text-brand-400 transition">Hướng dẫn mua hàng</a></li>
+              <li><a href="#" className="text-dark-300 hover:text-brand-400 transition">Chính sách đổi trả</a></li>
+              <li><a href="#" className="text-dark-300 hover:text-brand-400 transition">Liên hệ</a></li>
             </ul>
           </div>
           <div>
@@ -37,7 +37,7 @@ export default function Footer() {
             </div>
           </div>
         </div>
-        <div className="border-t border-dark-800 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-dark-500">
+        <div className="border-t border-dark-700 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-dark-400">
           <span>© {new Date().getFullYear()} PhShop. Mua sắm mô hình 3D.</span>
           <span>Hoạt động trên Cloudflare Pages</span>
         </div>
