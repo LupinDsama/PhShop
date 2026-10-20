@@ -2,164 +2,166 @@
 
 ## Giới thiệu
 
-PhShop là nền tảng thương mại điện tử hiện đại, chuyên bán sắm các mô hình in 3D (figure, thư tượng, sưu tầm, trang trí). Dự án được xây dựng theo outline từ ChatGPT, lấy cảm hứng UI/UX từ tasteskill.dev và trải nghiệm mua sắm từ Shopee/TikTok Shop.
+PhShop là nền tảng thương mại điện tử bán mô hình in 3D (figure, thư tượng, sưu tầm, trang trí).
+Dự án gồm **frontend React (SPA)** + **backend Node.js API** + **database SQLite**, với
+quản lý phân quyền (RBAC), realtime (SSE) và bộ kiểm thử tự động.
 
-**🌐 Trang web:** https://phshop.pages.dev/  
-**📦 Repository:** https://github.com/LupinDsama/PhShop  
-**☁️ Deploy:** Cloudflare Pages (qua Wrangler)
+**🌐 Trang web:** https://phshop.pages.dev/
+**📦 Repository:** https://github.com/LupinDsama/PhShop
+**☁️ Deploy:** Cloudflare Pages (frontend) + Node host (backend API)
+
+> ⚠️ Tài liệu kiểm toán đầy đủ: [`docs/ECOMMERCE_AUDIT.md`](docs/ECOMMERCE_AUDIT.md) ·
+> [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md) ·
+> [`docs/TEST_REPORT.md`](docs/TEST_REPORT.md) ·
+> [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) ·
+> [`docs/ECOMMERCE_TASKS.md`](docs/ECOMMERCE_TASKS.md)
 
 ## Công nghệ sử dụng
 
 | Công nghệ | Mục đích |
 |-----------|----------|
-| React + Vite | Frontend framework |
-| React Router DOM | SPA routing, URL trực tiếp |
-| Tailwind CSS | Styling, thiết kế responsive |
-| Framer Motion | Intro animation, chuyển trang mượt mà |
-| Zustand | Quản lý trạng thái (giỏ hàng, yêu thích, đơn hàng) |
-| Zustand persist | Lưu dữ liệu vào localStorage |
+| React 19 + Vite 8 | Frontend framework + build tool |
+| React Router 7 | SPA routing, route được bảo vệ |
+| Tailwind CSS 3 | Styling responsive |
+| Framer Motion | Intro animation, chuyển trang |
+| Zustand 5 | State phía client (cache của server, không phải nguồn dữ liệu) |
+| Zod 4 | Validation input ở server |
 | Lucide React | Biểu tượng |
-| React Hook Form + Zod | Xử lý form và validation |
-| Wrangler | Deploy lên Cloudflare Pages |
+| **Node.js 22 (node:http)** | **Backend API — không phụ thuộc runtime ngoài** |
+| **node:sqlite** | **Database (18 bảng, transaction, index)** |
+| **SSE (text/event-stream)** | **Realtime trạng thái đơn hàng** |
+| **node:test** | **130 test tự động (unit + API + E2E trình duyệt)** |
 
 ## Cấu trúc thư mục
 
 ```
 PhShop/
-├── public/
-│   ├── _redirects          # SPA fallback cho Cloudflare Pages
-│   ├── favicon.svg
-│   └── icons.svg
+├── server/                  # Backend Node.js
+│   ├── index.js             # HTTP server, router, static, error handling
+│   ├── config.js            # Cấu hình qua biến môi trường
+│   ├── db/
+│   │   ├── schema.sql       # 18 bảng + index + foreign key
+│   │   ├── index.js         # Kết nối SQLite + helper transaction
+│   │   └── seed-data.js     # Danh mục sản phẩm & coupon mẫu
+│   ├── lib/                 # http, security, session, password, pricing,
+│   │                        # order-state, payment, events, audit, orders, validate
+│   ├── routes/              # auth, products, cart, wishlist, orders, admin, events, misc
+│   └── scripts/             # seed.js, bootstrap-admin.js
 ├── src/
-│   ├── App.jsx             # Router, AuthProvider, ScrollToTop
-│   ├── main.jsx            # Entry point
-│   ├── index.css           # Tailwind + custom styles
-│   ├── data/
-│   │   └── products.js     # Dữ liệu sản phẩm mẫu
-│   ├── context/
-│   │   └── AuthContext.jsx # Xác thực, phân quyền admin/customer
-│   ├── store/
-│   │   ├── cart.js         # Giỏ hàng (persist localStorage)
-│   │   ├── wishlist.js     # Yêu thích (persist localStorage)
-│   │   └── orders.js       # Đơn hàng (persist localStorage)
+│   ├── lib/
+│   │   ├── api.js           # Fetch wrapper: cookie phiên, CSRF, timeout, chuẩn hoá lỗi
+│   │   ├── realtime.js      # Client SSE: reconnect + replay + polling dự phòng
+│   │   └── format.js        # Format tiền/ngày, nhãn & màu trạng thái
+│   ├── context/AuthContext.jsx  # Session server-side, phân quyền
+│   ├── store/               # cart, wishlist, orders (đồng bộ với API)
 │   ├── components/
-│   │   ├── layout/
-│   │   │   ├── Navbar.jsx  # Thanh điều hướng, badge giỏ hàng/yêu thích
-│   │   │   └── Footer.jsx  # Chân trang
-│   │   ├── intro/
-│   │   │   └── Intro.jsx   # Intro animation tự động + nút Bỏ qua
-│   │   └── ui/
-│   │       ├── Button.jsx
-│   │       ├── Card.jsx
-│   │       ├── Input.jsx
-│   │       └── utils.jsx   # cn() helper
+│   │   ├── layout/          # Navbar, Footer
+│   │   ├── intro/           # Intro animation (có nút Bỏ qua)
+│   │   └── ui/              # Button, Card, Input, States (loading/error/empty/pagination)
 │   └── pages/
-│       ├── Home.jsx        # Trang chủ, banner, danh mục, sản phẩm nổi bật
-│       ├── About.jsx       # Giới thiệu
-│       ├── Products.jsx    # Danh sách sản phẩm, lọc/tìm kiếm
-│       ├── ProductDetail.jsx # Chi tiết sản phẩm, chọn biến thể, thêm giỏ
-│       ├── Cart.jsx        # Giỏ hàng, điều chỉnh số lượng, tổng tiền
-│       ├── Wishlist.jsx    # Danh sách yêu thích
-│       ├── Login.jsx       # Đăng nhập (admin/customer)
-│       ├── Register.jsx    # Đăng ký tài khoản
-│       ├── Checkout.jsx    # Thanh toán, tạo đơn hàng thật
-│       ├── Order.jsx       # Lịch sử đơn hàng của user
-│       ├── Admin.jsx       # Bảng điều khiển admin (chỉ nhantk123vip@gmail.com)
-│       ├── Contact.jsx     # Liên hệ
-│       └── Profile.jsx     # Hồ sơ người dùng
-├── tailwind.config.js
-├── postcss.config.js
-├── vite.config.js
-├── wrangler.toml           # Cấu hình Cloudflare Pages
-├── .gitignore
-└── package.json
+│       ├── Home.jsx  About.jsx  Products.jsx  ProductDetail.jsx
+│       ├── Cart.jsx  Checkout.jsx  Order.jsx  Wishlist.jsx
+│       ├── Login.jsx  Register.jsx  Profile.jsx  Contact.jsx
+│       ├── Admin.jsx + pages/admin/*   # Dashboard, Orders, Products, Users,
+│       │                                # Coupons, Reviews, Messages, Audit
+│       └── NotFound.jsx
+├── tests/
+│   ├── unit/                # 17 test — pricing, order-state, password
+│   ├── api/                 # 88 test — auth, IDOR/RBAC, cart, orders, admin, realtime, security
+│   ├── e2e/browser-suite.mjs# 25 test trình duyệt thật
+│   └── helpers/server.js    # Test server + HTTP client có cookie jar
+├── scripts/                 # dev.mjs (chạy song song API+Vite), e2e.mjs
+└── docs/                    # Audit, Tasks, Security, Test report, Deployment
 ```
-
-## Tính năng chính
-
-### 1. Giao diện & trải nghiệm người dùng
-- **Intro animation** tự động khi lần đầu vào trang (3 bước: hình sản phẩm → thiết kế tối giản → bắt đầu mua sắm), có nút **Bỏ qua**.
-- Thiết kế hiện đại, tối giản, màu xanh lá cây (brand).
-- Responsive trên mobile, tablet, desktop.
-- Chuyển trang SPA mượt mà, URL trực tiếp.
-
-### 2. Sản phẩm
-- Danh sách sản phẩm với tìm kiếm và lọc theo danh mục (Figure, Trang trí, Sưu tầm).
-- Trang chi tiết sản phẩm: gallery ảnh, chọn biến thể (màu sắc, kích thước, SKU, giá, tồn kho), số lượng, ghi chú, sao đánh giá, sản phẩm tương tự.
-- Thêm vào giỏ hàng, lưu yêu thích (❤️).
-
-### 3. Giỏ hàng & yêu thích
-- Giỏ hàng lưu vào `localStorage` → không mất khi refresh/thoát web.
-- Badge số trên icon giỏ hàng và yêu thích cập nhật real-time.
-- Điều chỉnh số lượng, xóa sản phẩm, ghi chú đơn hàng.
-- Tóm tắt tiền hàng, phí vận chuyển miễn phí.
-
-### 4. Xác thực & phân quyền
-- Đăng nhập / Đăng ký tài khoản.
-- Email `nhantk123vip@gmail.com` được gán quyền **admin**.
-- Các email khác là **customer**.
-- Chỉ admin mới truy cập `/admin`.
-
-### 5. Đơn hàng & thanh toán
-- Checkout: thông tin giao hàng, hình thức thanh toán (COD / MoMo).
-- Tạo đơn hàng thật với mã đơn, email, tổng tiền, trạng thái `moi_tao`.
-- Trang `/order`: lịch sử đơn hàng của user, tiến độ xử lý, trạng thái.
-- Trạng thái đơn hàng: Mới tạo → Đã xác nhận → Đang sản xuất → Đang giao → Hoàn tất / Đã hủy.
-
-### 6. Admin Dashboard (chỉ admin)
-- Thống kê: tổng đơn hàng, doanh thu, sản phẩm active, khách hàng mới.
-- Tab Đơn hàng: bảng danh sách đơn hàng, dropdown **cập nhật trạng thái** đơn hàng cho từng khách hàng.
-- Tab Sản phẩm, Khách hàng, Cài đặt (sắp phát triển).
 
 ## Cài đặt & chạy local
 
 ```bash
-# Clone repository
-git clone https://github.com/LupinDsama/PhShop.git
-cd PhShop
-
-# Cài dependencies
+# Yêu cầu: Node.js >= 22.5.0
 npm install
-
-# Chạy phát triển
-npm run dev
-
-# Build sản xuất
-npm run build
-
-# Xem trước build
-npm run preview
+npm run seed        # tạo danh mục sản phẩm + coupon mẫu (idempotent)
+npm run dev         # API http://127.0.0.1:8787 + Web http://localhost:5173
 ```
 
-## Deploy lên Cloudflare Pages
-
-Dự án đã được cấu hình sẵn trong `wrangler.toml`:
-
-```toml
-name = "phshop"
-compatibility_date = "2026-10-20"
-
-[assets]
-  directory = "./dist"
-
-[observability]
-  enabled = true
-```
-
-Lệnh deploy:
+Lệnh khác:
 
 ```bash
-npx wrangler pages deploy dist --project-name phshop
+npm run dev:api     # chỉ API
+npm run dev:web     # chỉ frontend (Vite proxy /api)
+npm run build       # build production vào dist/
+npm start           # chạy production: phục vụ cả API và dist/
+npm run lint        # oxlint
 ```
 
-Trang web sẽ có sẵn tại: `https://phshop.pages.dev/`
+## Kiểm thử
 
-## Lưu ý quan trọng
+```bash
+npm test            # 105 test: unit + API integration + security
+npm run test:e2e    # 25 test trình duyệt thật (build production rồi chạy)
+```
 
-- Dữ liệu đơn hàng, giỏ hàng, yêu thích được lưu trong `localStorage` của trình duyệt (không có backend server thực).
-- Trạng thái đăng nhập được lưu trong `localStorage` với thời gian hết hạn **48 giờ** — người dùng không bị đăng xuất khi refresh trang hoặc đóng/mở lại tab.
-- Trạng thái đơn hàng có thể được cập nhật từ Admin Dashboard và sẽ hiển thị ngay trên trang `/order` của khách hàng.
-- Email admin mặc định: `nhantk123vip@gmail.com`.
+Kết quả: **130/130 PASS**, 0 lỗi console. Chi tiết: [`docs/TEST_REPORT.md`](docs/TEST_REPORT.md).
+
+## Tài khoản quản trị
+
+```bash
+# Mật khẩu lấy từ secret manager (không hardcode trong repo)
+PHSHOP_ADMIN_PASSWORD='<mật khẩu mạnh>' npm run bootstrap:admin
+```
+
+- Script idempotent, có audit log, không tạo mật khẩu mặc định.
+- Nếu thiếu biến môi trường, script sinh mật khẩu ngẫu nhiên và in ra **một lần duy nhất**.
+- Đăng ký công khai **không bao giờ** cấp quyền admin (kể cả với email `nhantk123vip@gmail.com`).
+- Cách khác: SUPER_ADMIN tạo lời mời trong Admin Dashboard → `/register?invite=<token>`.
+
+## Tính năng chính
+
+### Sản phẩm
+- Danh sách từ API: tìm kiếm (debounce), lọc danh mục, phân trang, ảnh lazy-load.
+- Chi tiết: gallery, biến thể (màu/kích thước/SKU), giá theo biến thể, tồn kho, số lượng min/max,
+  ghi chú, thời gian sản xuất dự kiến, đánh giá, sản phẩm liên quan.
+
+### Tài khoản & phân quyền
+- Đăng ký, đăng nhập, đăng xuất, xác minh email, quên/đặt lại mật khẩu, hồ sơ, đổi mật khẩu,
+  quản lý địa chỉ và phiên đăng nhập (thu hồi được).
+- 4 vai trò: `CUSTOMER` · `SUPPORT` · `ADMIN` · `SUPER_ADMIN` — **kiểm tra ở server**.
+
+### Giỏ hàng & yêu thích
+- Giỏ server-side: khách vãng lai gắn cookie, khách đăng nhập đồng bộ mọi thiết bị;
+  tự hợp nhất giỏ khi đăng nhập.
+- Tổng tiền/tồn kho do server tính; chặn số lượng vượt giới hạn; chống dòng trùng.
+- Wishlist server-side, chống bản ghi trùng, riêng tư theo tài khoản.
+
+### Đơn hàng & realtime
+- Tạo đơn: giá/tồn kho/thanh toán do server quyết định, `Idempotency-Key` chống tạo trùng.
+- State machine 10 trạng thái + trạng thái thanh toán riêng; ghi lịch sử mọi thay đổi.
+- Realtime SSE: trang đơn của khách cập nhật ngay khi admin đổi trạng thái
+  (kèm reconnect, replay `Last-Event-ID` và polling dự phòng).
+
+### Admin Dashboard
+Tổng quan · Đơn hàng (tìm/lọc/phân trang/chi tiết/ghi chú) · Sản phẩm (CRUD) ·
+Khách hàng & quyền · Mã giảm giá · Đánh giá · Tin nhắn · Nhật ký audit · Cấu hình hệ thống.
+
+## Bảo mật
+
+- Mật khẩu băm **scrypt**; token phiên chỉ lưu SHA-256; cookie `HttpOnly` + `SameSite` (+`Secure` ở production).
+- **CSRF** double-submit cho mọi request thay đổi trạng thái; security header đầy đủ (CSP, HSTS…).
+- **Rate limit** login/register/reset/contact/order/review; validation zod mọi endpoint; body ≤ 256 kB.
+- Kiểm tra sở hữu dữ liệu ở mọi endpoint (chống IDOR) — có test tự động.
+- Audit log cho mọi thao tác nhạy cảm; phản hồi lỗi không lộ stack trace.
+
+Chi tiết & các rủi ro còn lại: [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md).
+
+## Deploy
+
+Xem [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — ba phương án, ưu tiên giữ backend trên Node host
+và frontend trên Cloudflare Pages.
+
+```bash
+# Frontend lên Cloudflare Pages
+npm run build
+npx wrangler pages deploy dist --project-name phshop
+```
 
 ## License
 

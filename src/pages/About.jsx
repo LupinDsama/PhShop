@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { User, Truck, Headphones, Globe } from 'lucide-react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card'
+import { Card, CardDescription, CardHeader, CardTitle } from '../components/ui/Card'
 
 export default function About() {
   const info = [

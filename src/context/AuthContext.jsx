@@ -1,60 +1,113 @@
-import { createContext, useContext, useState, useEffect } from 'react'
-
-const ADMIN_EMAIL = 'nhantk123vip@gmail.com'
-const AUTH_KEY = 'phshop-auth'
-const AUTH_TTL_MS = 48 * 60 * 60 * 1000 // 48 hours
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import api from '../lib/api'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [isReady, setIsReady] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const mounted = useRef(true)
 
-  // Khôi phục phiên đăng nhập từ localStorage khi mount
   useEffect(() => {
+    // Phải set lại `true` mỗi lần mount: React StrictMode gọi effect 2 lần
+    // (mount → cleanup → mount) nếu không set lại thì mounted.current sẽ giữ
+    // giá trị false và isReady không bao giờ được bật → app kẹt ở màn loading.
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
+
+  const refresh = useCallback(async () => {
     try {
-      const raw = localStorage.getItem(AUTH_KEY)
-      if (!raw) {
-        setIsReady(true)
-        return
-      }
-      const data = JSON.parse(raw)
-      const now = Date.now()
-      if (data && data.user && data.expiresAt && now < data.expiresAt) {
-        setUser(data.user)
-      } else {
-        localStorage.removeItem(AUTH_KEY)
-      }
+      const data = await api.get('/api/auth/session')
+      if (!mounted.current) return null
+      setUser(data?.user || null)
+      return data?.user || null
     } catch {
-      localStorage.removeItem(AUTH_KEY)
+      if (mounted.current) setUser(null)
+      return null
     } finally {
-      setIsReady(true)
+      if (mounted.current) setIsReady(true)
     }
   }, [])
 
-  const login = (userData) => {
-    const role = userData.email === ADMIN_EMAIL ? 'admin' : 'customer'
-    const authUser = { ...userData, role }
-    const payload = {
-      user: authUser,
-      expiresAt: Date.now() + AUTH_TTL_MS,
+  useEffect(() => {
+    refresh()
+  }, [refresh])
+
+  const login = useCallback(async (email, password) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await api.post('/api/auth/login', { email, password })
+      setUser(data.user)
+      return data.user
+    } catch (err) {
+      setError(err.message)
+      throw err
+    } finally {
+      setLoading(false)
     }
-    try {
-      localStorage.setItem(AUTH_KEY, JSON.stringify(payload))
-    } catch {}
-    setUser(authUser)
-  }
+  }, [])
 
-  const logout = () => {
+  const register = useCallback(async (payload) => {
+    setLoading(true)
+    setError(null)
     try {
-      localStorage.removeItem(AUTH_KEY)
-    } catch {}
+      const data = await api.post('/api/auth/register', payload)
+      setUser(data.user)
+      return data
+    } catch (err) {
+      setError(err.message)
+      throw err
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const logout = useCallback(async () => {
+    try {
+      await api.post('/api/auth/logout', {})
+    } catch {
+      /* vẫn xoá phiên phía client */
+    }
     setUser(null)
-  }
+  }, [])
 
-  // Render children ngay cả khi đang khôi phục session (user=null tạm thời)
+  const updateProfile = useCallback(async (payload) => {
+    const data = await api.patch('/api/auth/profile', payload)
+    setUser(data.user)
+    return data.user
+  }, [])
+
+  const changePassword = useCallback(async (payload) => {
+    return api.patch('/api/auth/password', payload)
+  }, [])
+
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
+  const isStaff = isAdmin || user?.role === 'SUPPORT'
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user, isAdmin: user?.role === 'admin' }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isReady,
+        loading,
+        error,
+        setError,
+        isAuthenticated: !!user,
+        isAdmin,
+        isStaff,
+        isSuperAdmin: user?.role === 'SUPER_ADMIN',
+        login,
+        register,
+        logout,
+        refresh,
+        updateProfile,
+        changePassword,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )

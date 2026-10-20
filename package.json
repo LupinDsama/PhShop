@@ -1,13 +1,26 @@
 {
   "name": "phshop",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "vite",
+    "dev:api": "node --disable-warning=ExperimentalWarning server/index.js",
     "build": "vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "seed": "node --disable-warning=ExperimentalWarning server/scripts/seed.js",
+    "bootstrap:admin": "node --disable-warning=ExperimentalWarning server/scripts/bootstrap-admin.js",
+    "test": "node --disable-warning=ExperimentalWarning --test tests/unit/*.test.js tests/api/*.test.js",
+    "test:unit": "node --disable-warning=ExperimentalWarning --test tests/unit/*.test.js",
+    "test:api": "node --disable-warning=ExperimentalWarning --test tests/api/*.test.js",
+    "test:e2e": "node scripts/e2e.mjs",
+    "test:e2e:dev": "node scripts/e2e.mjs --dev"
   },
   "dependencies": {
     "autoprefixer": "^10.6.1",

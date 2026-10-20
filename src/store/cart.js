@@ -1,50 +1,106 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import api from '../lib/api'
 
-export const useCartStore = create(
-  persist(
-    (set, get) => ({
-      items: [],
-      addItem: (variant, quantity = 1, note = '') => {
-        const items = get().items
-        const existing = items.find((i) => i.variantId === variant.id && i.note === note)
-        if (existing) {
-          existing.quantity += quantity
-        } else {
-          items.push({ variantId: variant.id, variant, quantity, note })
-        }
-        set({ items: [...items] })
-      },
-      removeItem: (variantId) =>
-        set((state) => ({ items: state.items.filter((i) => i.variantId !== variantId) })),
-      updateQuantity: (variantId, quantity) => {
-        if (quantity <= 0) {
-          get().removeItem(variantId)
-          return
-        }
-        set((state) => ({
-          items: state.items.map((i) =>
-            i.variantId === variantId ? { ...i, quantity } : i
-          ),
-        }))
-      },
-      updateNote: (variantId, note) =>
-        set((state) => ({
-          items: state.items.map((i) =>
-            i.variantId === variantId ? { ...i, note } : i
-          ),
-        })),
-      clearCart: () => set({ items: [] }),
-      get total() {
-        return get().items.reduce(
-          (sum, i) => sum + i.variant.price * i.quantity,
-          0
-        )
-      },
-      get count() {
-        return get().items.reduce((sum, i) => sum + i.quantity, 0)
-      },
+/**
+ * Giỏ hàng server-side.
+ * - Khách vãng lai: server gắn giỏ với cookie `phshop_cart`.
+ * - Khách đã đăng nhập: giỏ theo user, đồng bộ mọi thiết bị.
+ * - Mọi tổng tiền do server tính (không dùng getter trong store để tránh
+ *   giá trị stale như ở phiên bản localStorage trước đây).
+ */
+export const useCartStore = create((set, get) => ({
+  items: [],
+  count: 0,
+  subtotal: 0,
+  discount: 0,
+  shippingFee: 0,
+  total: 0,
+  hasIssues: false,
+  loading: false,
+  error: null,
+  loaded: false,
+
+  applyCart: (cart) =>
+    set({
+      items: cart?.items || [],
+      count: cart?.count || 0,
+      subtotal: cart?.subtotal || 0,
+      discount: cart?.discount || 0,
+      shippingFee: cart?.shippingFee || 0,
+      total: cart?.total || 0,
+      hasIssues: !!cart?.hasIssues,
+      loaded: true,
     }),
-    { name: 'phshop-cart' }
-  )
-)
+
+  fetchCart: async () => {
+    set({ loading: true, error: null })
+    try {
+      const cart = await api.get('/api/cart')
+      get().applyCart(cart)
+      return cart
+    } catch (err) {
+      set({ error: err.message })
+      throw err
+    } finally {
+      set({ loading: false })
+    }
+  },
+
+  addItem: async (variantId, quantity = 1, note = '') => {
+    set({ error: null })
+    try {
+      const cart = await api.post('/api/cart/items', { variantId, quantity, note })
+      get().applyCart(cart)
+      return cart
+    } catch (err) {
+      set({ error: err.message })
+      throw err
+    }
+  },
+
+  updateItem: async (itemId, patch) => {
+    try {
+      const cart = await api.patch(`/api/cart/items/${itemId}`, patch)
+      get().applyCart(cart)
+      return cart
+    } catch (err) {
+      set({ error: err.message })
+      throw err
+    }
+  },
+
+  removeItem: async (itemId) => {
+    try {
+      const cart = await api.delete(`/api/cart/items/${itemId}`)
+      get().applyCart(cart)
+      return cart
+    } catch (err) {
+      set({ error: err.message })
+      throw err
+    }
+  },
+
+  clearCart: async () => {
+    try {
+      const cart = await api.delete('/api/cart')
+      get().applyCart(cart)
+      return cart
+    } catch (err) {
+      set({ error: err.message })
+      throw err
+    }
+  },
+
+  /** Hợp nhất giỏ khách vãng lai vào giỏ tài khoản sau khi đăng nhập. */
+  mergeGuestCart: async () => {
+    try {
+      const cart = await api.post('/api/cart/merge', {})
+      get().applyCart(cart)
+      return cart
+    } catch {
+      return null
+    }
+  },
+
+  reset: () => set({ items: [], count: 0, subtotal: 0, discount: 0, shippingFee: 0, total: 0, hasIssues: false, error: null, loaded: false }),
+}))

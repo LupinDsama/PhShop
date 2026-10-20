@@ -8,3 +8,12 @@ dist-ssr/
 .vscode/
 *.log
 .DS_Store
+
+# Database phát triển (SQLite) — không đưa dữ liệu người dùng vào repo
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Thư mục test tạm
+coverage/

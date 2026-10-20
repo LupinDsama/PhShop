@@ -6,8 +6,7 @@ export function cn(...inputs) {
   return twMerge(clsx(inputs))
 }
 
-export const Button = forwardRef(({ className, variant = 'primary', size = 'md', disabled, asChild = false, ...props }, ref) => {
-  const Comp = asChild ? React.Fragment : 'button'
+export const Button = forwardRef(({ className, variant = 'primary', size = 'md', disabled, asChild = false, children, ...props }, ref) => {
   const base = 'inline-flex items-center justify-center rounded-xl font-medium transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none focus:outline-none focus:ring-2 focus:ring-offset-2'
   const variants = {
     primary: 'bg-brand-600 text-white hover:bg-brand-500 focus:ring-brand-500 shadow-sm',
@@ -21,12 +20,22 @@ export const Button = forwardRef(({ className, variant = 'primary', size = 'md',
     md: 'px-4 py-2 text-sm',
     lg: 'px-6 py-3 text-base',
   }
+  const classes = cn(base, variants[variant], sizes[size], className)
+
+  // asChild: giao props cho phần tử con (React.Fragment không nhận disabled).
+  if (asChild) {
+    const child = React.Children.only(children)
+    return React.cloneElement(child, {
+      ...props,
+      ref,
+      className: cn(classes, child.props.className),
+      ...(disabled ? { 'aria-disabled': 'true' } : {}),
+    })
+  }
+
   return (
-    <Comp
-      ref={ref}
-      disabled={disabled}
-      className={cn(base, variants[variant], sizes[size], className)}
-      {...props}
-    />
+    <button ref={ref} disabled={disabled} className={classes} {...props}>
+      {children}
+    </button>
   )
 })

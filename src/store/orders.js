@@ -1,53 +1,68 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import api from '../lib/api'
 
-const STATUS_ORDER = [
-  'moi_tao',
-  'xac_nhan',
-  'dang_san_xuat',
-  'dang_giao',
-  'hoan_tat',
-  'da_huy',
-]
+/** Store đơn hàng của khách — nguồn dữ liệu duy nhất là API server. */
+export const useOrderStore = create((set, get) => ({
+  orders: [],
+  total: 0,
+  page: 1,
+  limit: 10,
+  totalPages: 1,
+  loading: false,
+  error: null,
+  loaded: false,
 
-const STATUS_LABEL = {
-  moi_tao: 'Mới tạo',
-  xac_nhan: 'Đã xác nhận',
-  dang_san_xuat: 'Đang sản xuất',
-  dang_giao: 'Đang giao',
-  hoan_tat: 'Hoàn tất',
-  da_huy: 'Đã hủy',
-}
+  fetchOrders: async ({ page = 1, limit = 10, status } = {}) => {
+    set({ loading: true, error: null })
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+      if (status) params.set('status', status)
+      const data = await api.get(`/api/orders?${params.toString()}`)
+      set({
+        orders: data.orders || [],
+        total: data.total || 0,
+        page: data.page || 1,
+        limit: data.limit || limit,
+        totalPages: data.totalPages || 1,
+        loaded: true,
+      })
+      return data
+    } catch (err) {
+      set({ error: err.message })
+      throw err
+    } finally {
+      set({ loading: false })
+    }
+  },
 
-export const useOrderStore = create(
-  persist(
-    (set, get) => ({
-      orders: [],
+  fetchOrder: async (orderId) => {
+    const data = await api.get(`/api/orders/${encodeURIComponent(orderId)}`)
+    return data.order
+  },
 
-      addOrder: (order) =>
-        set((state) => ({ orders: [order, ...state.orders] })),
+  cancelOrder: async (orderId) => {
+    const data = await api.post(`/api/orders/${encodeURIComponent(orderId)}/cancel`, {})
+    get().applyUpdate(data.order)
+    return data.order
+  },
 
-      updateOrderStatus: (orderId, newStatus) =>
-        set((state) => ({
-          orders: state.orders.map((o) =>
-            o.id === orderId ? { ...o, status: newStatus } : o
-          ),
-        })),
+  requestReturn: async (orderId, note = '') => {
+    const data = await api.post(`/api/orders/${encodeURIComponent(orderId)}/return`, { note })
+    get().applyUpdate(data.order)
+    return data.order
+  },
 
-      getOrdersByUser: (email) =>
-        get().orders.filter((o) => o.customerEmail === email),
+  /** Cập nhật tại chỗ một đơn trong danh sách (dùng khi realtime báo thay đổi). */
+  applyUpdate: (order) => {
+    if (!order?.id) return
+    set((state) => {
+      const index = state.orders.findIndex((o) => o.id === order.id)
+      if (index === -1) return {}
+      const orders = [...state.orders]
+      orders[index] = { ...orders[index], ...order }
+      return { orders }
+    })
+  },
 
-      getAllOrders: () => get().orders,
-
-      getOrderById: (id) => get().orders.find((o) => o.id === id),
-
-      get statusOrder() {
-        return STATUS_ORDER
-      },
-      get statusLabel() {
-        return STATUS_LABEL
-      },
-    }),
-    { name: 'phshop-orders' }
-  )
-)
+  reset: () => set({ orders: [], total: 0, page: 1, totalPages: 1, loaded: false, error: null }),
+}))

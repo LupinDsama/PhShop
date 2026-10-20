@@ -1,0 +1,182 @@
+{
+  "baseUrl": "http://127.0.0.1:5188",
+  "generatedAt": "2026-10-20T19:05:32.924Z",
+  "results": [
+    {
+      "id": "SMOKE-/",
+      "name": "Mở trang /",
+      "ok": true,
+      "detail": "",
+      "page": "/"
+    },
+    {
+      "id": "SMOKE-/about",
+      "name": "Mở trang /about",
+      "ok": true,
+      "detail": "",
+      "page": "/about"
+    },
+    {
+      "id": "SMOKE-/products",
+      "name": "Mở trang /products",
+      "ok": true,
+      "detail": "",
+      "page": "/products"
+    },
+    {
+      "id": "SMOKE-/products/mo-hinh-ky-vien-3d",
+      "name": "Mở trang /products/mo-hinh-ky-vien-3d",
+      "ok": true,
+      "detail": "",
+      "page": "/products/mo-hinh-ky-vien-3d"
+    },
+    {
+      "id": "SMOKE-/cart",
+      "name": "Mở trang /cart",
+      "ok": true,
+      "detail": "",
+      "page": "/cart"
+    },
+    {
+      "id": "SMOKE-/wishlist",
+      "name": "Mở trang /wishlist",
+      "ok": true,
+      "detail": "",
+      "page": "/wishlist"
+    },
+    {
+      "id": "SMOKE-/login",
+      "name": "Mở trang /login",
+      "ok": true,
+      "detail": "",
+      "page": "/login"
+    },
+    {
+      "id": "SMOKE-/register",
+      "name": "Mở trang /register",
+      "ok": true,
+      "detail": "",
+      "page": "/register"
+    },
+    {
+      "id": "SMOKE-/contact",
+      "name": "Mở trang /contact",
+      "ok": true,
+      "detail": "",
+      "page": "/contact"
+    },
+    {
+      "id": "SMOKE-/products:search",
+      "name": "Trang /products có ô tìm kiếm",
+      "ok": true,
+      "detail": "",
+      "page": "/products (search box)"
+    },
+    {
+      "id": "AUTH-001",
+      "name": "Đăng ký và đăng nhập bằng form",
+      "ok": true,
+      "detail": "user=e2e-1792523094645@example.com",
+      "page": "/register"
+    },
+    {
+      "id": "ECOM-003",
+      "name": "Thêm sản phẩm vào giỏ (badge cập nhật)",
+      "ok": true,
+      "detail": "badge=1",
+      "page": "/products/mo-hinh-ky-vien-3d"
+    },
+    {
+      "id": "ECOM-004",
+      "name": "Refresh giỏ hàng — dữ liệu giữ nguyên",
+      "ok": true,
+      "detail": "badge=1",
+      "page": "/products/mo-hinh-ky-vien-3d"
+    },
+    {
+      "id": "ECOM-004b",
+      "name": "Trang giỏ hiển thị sản phẩm sau refresh",
+      "ok": true,
+      "detail": "",
+      "page": "/products/mo-hinh-ky-vien-3d"
+    },
+    {
+      "id": "ECOM-007",
+      "name": "Đặt hàng hợp lệ tạo 1 đơn (mã PHS…)",
+      "ok": true,
+      "detail": "http://127.0.0.1:5188/order/PHSMVH1Z4FWLSTQK?placed=1",
+      "page": "/checkout"
+    },
+    {
+      "id": "ADMIN-001",
+      "name": "Admin đăng nhập được vào dashboard",
+      "ok": true,
+      "detail": "role=SUPER_ADMIN",
+      "page": "/admin"
+    },
+    {
+      "id": "ADMIN-002",
+      "name": "Trang /admin hiển thị dashboard",
+      "ok": true,
+      "detail": "",
+      "page": "/admin"
+    },
+    {
+      "id": "ORDER-002",
+      "name": "Admin cập nhật trạng thái đơn qua backend",
+      "ok": true,
+      "detail": "HTTP 200",
+      "page": "/admin"
+    },
+    {
+      "id": "ECOM-011",
+      "name": "Trang đơn của khách tự cập nhật khi admin đổi trạng thái",
+      "ok": true,
+      "detail": "trước=false sau=true",
+      "page": "/admin"
+    },
+    {
+      "id": "ECOM-014",
+      "name": "Khách khác không đọc được đơn của người khác (IDOR)",
+      "ok": true,
+      "detail": "HTTP 404",
+      "page": "/admin"
+    },
+    {
+      "id": "ECOM-013",
+      "name": "Khách gọi API quản trị bị từ chối",
+      "ok": true,
+      "detail": "HTTP 403",
+      "page": "/admin"
+    },
+    {
+      "id": "ECOM-005",
+      "name": "Wishlist: thêm và chống bản ghi trùng",
+      "ok": true,
+      "detail": "{\"post\":201,\"dup\":200,\"count\":1,\"already\":true,\"listCount\":1}",
+      "page": "/products"
+    },
+    {
+      "id": "ADMIN-003",
+      "name": "Khách hàng bị chặn khỏi /admin",
+      "ok": true,
+      "detail": "",
+      "page": "/admin (as customer)"
+    },
+    {
+      "id": "ECOM-020",
+      "name": "Không tràn ngang ở viewport mobile 375px",
+      "ok": true,
+      "detail": "overflow=0px",
+      "page": "mobile 375px"
+    },
+    {
+      "id": "SMOKE-404",
+      "name": "Route lạ hiển thị trang 404",
+      "ok": true,
+      "detail": "HTTP 200",
+      "page": "/khong-ton-tai"
+    }
+  ],
+  "consoleErrors": []
+}
