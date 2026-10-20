@@ -7,12 +7,28 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 
 export default function Admin() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, isAdmin } = useAuth()
   const [tab, setTab] = useState('dashboard')
 
   if (!isAuthenticated) {
     navigateToLogin()
     return null
+  }
+  if (!isAdmin) {
+    return (
+      <div className="section min-h-[calc(100vh-64px)] flex items-center justify-center">
+        <div className="container-page">
+          <Card className="max-w-md mx-auto shadow-xl text-center p-12">
+            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4 text-red-600">
+              <Users size={32} />
+            </div>
+            <h2 className="text-2xl font-bold text-dark-900 mb-2">Bạn không có quyền truy cập</h2>
+            <p className="text-dark-500 mb-6">Chỉ admin mới có thể vào trang quản trị.</p>
+            <Link to="/" className="text-brand-600 font-medium hover:underline">Về trang chủ</Link>
+          </Card>
+        </div>
+      </div>
+    )
   }
 
   const stats = [
