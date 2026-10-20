@@ -59,9 +59,12 @@ export default function Navbar() {
                 <span className="text-sm font-medium text-dark-700 hidden sm:block">{user?.email.split('@')[0]}</span>
               </button>
               {userOpen && (
-                <div className="absolute right-0 mt-2 w-48 rounded-2xl border border-dark-100 bg-white shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="absolute right-0 mt-2 w-56 rounded-2xl border border-dark-100 bg-white shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
                   <Link to="/profile" className="block px-4 py-2 text-sm text-dark-700 hover:bg-dark-50 transition">Hồ sơ của tôi</Link>
                   <Link to="/order" className="block px-4 py-2 text-sm text-dark-700 hover:bg-dark-50 transition">Đơn hàng của tôi</Link>
+                  {isAdmin && (
+                    <Link to="/admin" className="block px-4 py-2 text-sm text-brand-600 hover:bg-brand-50 transition font-semibold">Quản trị Admin</Link>
+                  )}
                   <button onClick={() => { logout(); setUserOpen(false); navigate('/login') }} className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition">Đăng xuất</button>
                 </div>
               )}
@@ -97,6 +100,9 @@ export default function Navbar() {
               <>
                 <Link to="/profile" className="block py-3 text-sm hover:text-brand-600 transition">Hồ sơ</Link>
                 <Link to="/order" className="block py-3 text-sm hover:text-brand-600 transition">Đơn hàng</Link>
+                {isAdmin && (
+                  <Link to="/admin" className="block py-3 text-sm text-brand-600 hover:bg-brand-50 transition font-semibold">Quản trị Admin</Link>
+                )}
                 <button onClick={() => { logout(); navigate('/login') }} className="block py-3 text-sm text-red-600 hover:text-red-500 transition">Đăng xuất</button>
               </>
             ) : (

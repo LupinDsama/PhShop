@@ -1,14 +1,33 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { Package, Truck, ShieldCheck, Star, Settings, Users, Clock, Mail, Phone } from 'lucide-react'
+import { Package, Truck, ShieldCheck, Star, Settings, Users, Clock, Mail, Phone, ChevronDown } from 'lucide-react'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 
+const statusOptions = [
+  { value: 'moi_tao', label: 'Mới tạo', color: 'text-blue-600' },
+  { value: 'xac_nhan', label: 'Đã xác nhận', color: 'text-blue-600' },
+  { value: 'dang_san_xuat', label: 'Đang sản xuất', color: 'text-amber-600' },
+  { value: 'dang_giao', label: 'Đang giao', color: 'text-blue-600' },
+  { value: 'hoan_tat', label: 'Hoàn tất', color: 'text-green-600' },
+  { value: 'da_huy', label: 'Đã hủy', color: 'text-red-600' },
+]
+
+const statusBadge = {
+  moi_tao: 'bg-blue-100 text-blue-700',
+  xac_nhan: 'bg-blue-100 text-blue-700',
+  dang_san_xuat: 'bg-amber-100 text-amber-700',
+  dang_giao: 'bg-blue-100 text-blue-700',
+  hoan_tat: 'bg-green-100 text-green-700',
+  da_huy: 'bg-red-100 text-red-700',
+}
+
 export default function Admin() {
   const { isAuthenticated, isAdmin } = useAuth()
   const [tab, setTab] = useState('dashboard')
+  const [openStatus, setOpenStatus] = useState(null)
 
   if (!isAuthenticated) {
     navigateToLogin()
@@ -38,11 +57,12 @@ export default function Admin() {
     { label: 'Khách hàng mới', value: '32', change: '+15%', icon: <Users className="w-5 h-5" />, color: 'text-purple-600' },
   ]
 
-  const recentOrders = [
-    { id: 'PH001', customer: 'Nguyễn Văn A', total: '250.000 ₫', status: 'Hoàn tất', date: '20/10/2026' },
-    { id: 'PH002', customer: 'Trần Thị B', total: '420.000 ₫', status: 'Đang giao', date: '19/10/2026' },
-    { id: 'PH003', customer: 'Lê Văn C', total: '180.000 ₫', status: 'Đang sản xuất', date: '18/10/2026' },
-    { id: 'PH004', customer: 'Phạm Văn D', total: '320.000 ₫', status: 'Mới tạo', date: '17/10/2026' },
+  const orders = [
+    { id: 'PH001', customer: 'Nguyễn Văn A', email: 'nguyenvana@gmail.com', total: '250.000 ₫', status: 'hoan_tat', date: '20/10/2026' },
+    { id: 'PH002', customer: 'Trần Thị B', email: 'tranthib@gmail.com', total: '420.000 ₫', status: 'dang_giao', date: '19/10/2026' },
+    { id: 'PH003', customer: 'Lê Văn C', email: 'levanc@gmail.com', total: '180.000 ₫', status: 'dang_san_xuat', date: '18/10/2026' },
+    { id: 'PH004', customer: 'Phạm Văn D', email: 'phamvand@gmail.com', total: '320.000 ₫', status: 'moi_tao', date: '17/10/2026' },
+    { id: 'PH005', customer: 'Hoàng Thị E', email: 'hoangtie@gmail.com', total: '150.000 ₫', status: 'da_huy', date: '15/10/2026' },
   ]
 
   const tabs = [
@@ -53,6 +73,11 @@ export default function Admin() {
     { key: 'settings', label: 'Cài đặt', icon: <Settings className="w-4 h-4" /> },
   ]
 
+  const handleChangeStatus = (orderId, newStatus) => {
+    setOpenStatus(null)
+    alert(`Đã cập nhật đơn hàng ${orderId} thành "${statusOptions.find(s => s.value === newStatus)?.label}"`)
+  }
+
   return (
     <div className="section">
       <div className="container-page">
@@ -62,7 +87,7 @@ export default function Admin() {
             <p className="text-dark-500">Quản lý cửa hàng mô hình in 3D của bạn.</p>
           </div>
           <Button asChild>
-            <Link to="/products">Thêm sản phẩm <ArrowRight size={18} /></Link>
+            <Link to="/products">Thêm sản phẩm <ChevronDown size={18} /></Link>
           </Button>
         </div>
 
@@ -139,27 +164,42 @@ export default function Admin() {
                 <tr className="border-b border-dark-100">
                   <th className="px-4 py-3 font-medium text-dark-500">Mã đơn</th>
                   <th className="px-4 py-3 font-medium text-dark-500">Khách hàng</th>
+                  <th className="px-4 py-3 font-medium text-dark-500">Email</th>
                   <th className="px-4 py-3 font-medium text-dark-500">Tổng tiền</th>
                   <th className="px-4 py-3 font-medium text-dark-500">Trạng thái</th>
                   <th className="px-4 py-3 font-medium text-dark-500">Ngày</th>
-                  <th className="px-4 py-3 font-medium text-dark-500">Hành động</th>
+                  <th className="px-4 py-3 font-medium text-dark-500">Cập nhật</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-dark-100">
-                {recentOrders.map((o) => (
+                {orders.map((o) => (
                   <tr key={o.id} className="hover:bg-dark-50 transition">
                     <td className="px-4 py-3 font-medium text-dark-900">{o.id}</td>
                     <td className="px-4 py-3 text-dark-600">{o.customer}</td>
+                    <td className="px-4 py-3 text-sm text-dark-500">{o.email}</td>
                     <td className="px-4 py-3 font-medium text-dark-900">{o.total}</td>
                     <td className="px-4 py-3">
-                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                        o.status === 'Hoàn tất' ? 'bg-green-100 text-green-700' :
-                        o.status === 'Đang giao' ? 'bg-blue-100 text-blue-700' :
-                        'bg-amber-100 text-amber-700'
-                      }`}>{o.status}</span>
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusBadge[o.status]}`}>
+                        {statusOptions.find(s => s.value === o.status)?.label}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-dark-500">{o.date}</td>
-                    <td className="px-4 py-3 text-dark-500">Xem chi tiết</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <select
+                          defaultValue={o.status}
+                          className="text-xs bg-white border border-dark-200 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                          onChange={(e) => handleChangeStatus(o.id, e.target.value)}
+                        >
+                          {statusOptions.map((s) => (
+                            <option key={s.value} value={s.value}>{s.label}</option>
+                          ))}
+                        </select>
+                        <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); handleChangeStatus(o.id, o.status) }}>
+                          Lưu
+                        </Button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
