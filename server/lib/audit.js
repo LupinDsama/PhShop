@@ -3,7 +3,7 @@
  */
 import { run } from '../db/index.js'
 
-export function audit({
+export async function audit({
   actorUserId = null,
   actorEmail = '',
   actorRole = 'SYSTEM',
@@ -15,7 +15,7 @@ export function audit({
   ip = '',
   userAgent = '',
 }) {
-  run(
+  await run(
     `INSERT INTO audit_log (actor_user_id, actor_email, actor_role, action, entity_type, entity_id, before_json, after_json, ip, user_agent)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [

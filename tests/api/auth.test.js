@@ -63,7 +63,7 @@ test('đăng nhập đúng trả về cookie phiên HttpOnly + có cookie CSRF',
   const session = setCookies.find((s) => s.startsWith('phshop_sid='))
   assert.ok(session, 'phải có cookie phiên')
   assert.match(session, /HttpOnly/i)
-  assert.match(session, /SameSite=Lax/i)
+  assert.match(session, /SameSite=(Lax|None)/i)
   assert.ok(c.cookies.has('phshop_csrf'), 'phải có cookie CSRF')
 })
 

@@ -24,13 +24,26 @@ export function getCookie(name) {
 }
 
 let csrfPromise = null
+let lastCsrfToken = null
 
-/** Đảm bảo có cookie CSRF trước khi gọi request thay đổi trạng thái. */
+/**
+ * Lấy CSRF token.
+ * Ưu tiên cookie (double-submit), sau đó token nhận được từ body của response
+ * gần nhất (trường hợp cookie bị trình duyệt/proxy chuyển thành HttpOnly).
+ */
 export async function ensureCsrfToken() {
-  if (getCookie('phshop_csrf')) return getCookie('phshop_csrf')
+  const cookieToken = getCookie('phshop_csrf')
+  if (cookieToken) return cookieToken
+  if (lastCsrfToken) return lastCsrfToken
   if (!csrfPromise) {
     csrfPromise = fetch(`${API_BASE}/api/meta`, { credentials: 'include' })
-      .then(() => getCookie('phshop_csrf'))
+      .then(async (res) => {
+        try {
+          const data = await res.json()
+          if (data?.csrfToken) lastCsrfToken = data.csrfToken
+        } catch { /* ignore */ }
+        return getCookie('phshop_csrf') || lastCsrfToken
+      })
       .finally(() => { csrfPromise = null })
   }
   return csrfPromise
@@ -43,6 +56,7 @@ export async function apiFetch(path, options = {}) {
     headers = {},
     signal,
     timeoutMs = 20000,
+    retryOnCsrf = true,
   } = options
 
   const finalHeaders = { Accept: 'application/json', ...headers }
@@ -82,8 +96,19 @@ export async function apiFetch(path, options = {}) {
     try { data = JSON.parse(text) } catch { data = null }
   }
 
+  // Ghi nhớ CSRF token server trả về (dự phòng khi cookie không đọc được).
+  if (data && typeof data.csrfToken === 'string') lastCsrfToken = data.csrfToken
+
   if (!response.ok) {
     const error = data?.error || {}
+    // Token CSRF hết hạn/không khớp → lấy token mới rồi thử lại một lần.
+    if (response.status === 403 && retryOnCsrf && !['GET', 'HEAD'].includes(method)) {
+      lastCsrfToken = null
+      const fresh = await ensureCsrfToken()
+      if (fresh) {
+        return apiFetch(path, { ...options, retryOnCsrf: false, headers: { ...headers, 'X-CSRF-Token': fresh } })
+      }
+    }
     throw new ApiError(
       response.status,
       error.code || 'unknown_error',

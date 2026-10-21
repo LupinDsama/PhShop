@@ -1,6 +1,6 @@
 {
-  "baseUrl": "http://127.0.0.1:5188",
-  "generatedAt": "2026-10-20T19:05:32.924Z",
+  "baseUrl": "http://127.0.0.1:8791",
+  "generatedAt": "2026-10-21T16:08:55.724Z",
   "results": [
     {
       "id": "SMOKE-/",
@@ -76,7 +76,7 @@
       "id": "AUTH-001",
       "name": "Đăng ký và đăng nhập bằng form",
       "ok": true,
-      "detail": "user=e2e-1792523094645@example.com",
+      "detail": "user=e2e-1792598903954@example.com",
       "page": "/register"
     },
     {
@@ -104,7 +104,7 @@
       "id": "ECOM-007",
       "name": "Đặt hàng hợp lệ tạo 1 đơn (mã PHS…)",
       "ok": true,
-      "detail": "http://127.0.0.1:5188/order/PHSMVH1Z4FWLSTQK?placed=1",
+      "detail": "http://127.0.0.1:8791/order/PHSMVIB3Y18D59ZJ?placed=1",
       "page": "/checkout"
     },
     {

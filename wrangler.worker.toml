@@ -1,0 +1,30 @@
+# Cloudflare Worker — API PhShop (Cloudflare D1)
+# Dùng: npx wrangler deploy -c wrangler.worker.toml
+name = "phshop-api"
+main = "server/worker.js"
+compatibility_date = "2025-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 database — tạo bằng: npx wrangler d1 create phshop
+[[d1_databases]]
+binding = "DB"
+database_name = "phshop"
+database_id = "1f41c18a-96eb-4b62-b3e4-2caab8d99e4a"
+
+[vars]
+NODE_ENV = "production"
+# Email quản trị mục tiêu (quyền KHÔNG tự cấp khi đăng ký)
+PHSHOP_ADMIN_EMAIL = "nhantk123vip@gmail.com"
+PHSHOP_SUPER_ADMIN_EMAIL = "nhantk123vip@gmail.com"
+# Cho phép frontend trên Cloudflare Pages gọi API chéo origin
+PHSHOP_CORS_ORIGINS = "https://phshop.pages.dev,http://localhost:5173"
+# Cookie phiên: SameSite=None + Secure để dùng được khi khác origin
+PHSHOP_COOKIE_SAMESITE = "None"
+PHSHOP_SECURE_COOKIES = "true"
+# Cloudflare làm reverse proxy → tin X-Forwarded-For để rate limit theo IP thật
+PHSHOP_TRUST_PROXY = "true"
+PHSHOP_SHIPPING_FEE = "0"
+PHSHOP_FREE_SHIPPING_THRESHOLD = "0"
+
+[observability]
+enabled = true

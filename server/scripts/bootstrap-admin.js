@@ -17,11 +17,14 @@
  *   node server/scripts/bootstrap-admin.js --reset-password
  */
 import { randomBytes } from 'node:crypto'
-import { one, run, closeDb } from '../db/index.js'
+import { one, run, close, setAdapter } from '../db/index.js'
+import * as sqliteAdapter from '../db/sqlite.js'
 import { hashPassword } from '../lib/password.js'
 import { audit } from '../lib/audit.js'
 import config from '../config.js'
 import { seed } from './seed.js'
+
+setAdapter(sqliteAdapter)
 
 function generatePassword() {
   const alphabet = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%'
@@ -32,8 +35,9 @@ function generatePassword() {
 }
 
 export async function bootstrapAdmin({ email, password, role = 'SUPER_ADMIN', resetPassword = false } = {}) {
+  sqliteAdapter.init()
   const targetEmail = (email || config.adminEmail).trim().toLowerCase()
-  const existing = one(`SELECT * FROM users WHERE email = ?`, [targetEmail])
+  const existing = await one(`SELECT * FROM users WHERE email = ?`, [targetEmail])
   const plain = password || process.env.PHSHOP_ADMIN_PASSWORD || generatePassword()
   const generated = !password && !process.env.PHSHOP_ADMIN_PASSWORD
   const hash = await hashPassword(plain)
@@ -41,7 +45,7 @@ export async function bootstrapAdmin({ email, password, role = 'SUPER_ADMIN', re
   let userId
   let created = false
   if (!existing) {
-    const result = run(
+    const result = await run(
       `INSERT INTO users (email, name, phone, password_hash, role, email_verified, status, created_at, updated_at)
        VALUES (?, ?, '', ?, ?, 1, 'active', datetime('now'), datetime('now'))`,
       [targetEmail, 'PhShop Admin', hash, role],
@@ -51,16 +55,16 @@ export async function bootstrapAdmin({ email, password, role = 'SUPER_ADMIN', re
   } else {
     userId = existing.id
     if (resetPassword) {
-      run(`UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?`, [hash, userId])
+      await run(`UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?`, [hash, userId])
     } else if (existing.role !== role) {
-      run(`UPDATE users SET role = ?, updated_at = datetime('now') WHERE id = ?`, [role, userId])
+      await run(`UPDATE users SET role = ?, updated_at = datetime('now') WHERE id = ?`, [role, userId])
     }
     if (existing.status !== 'active') {
-      run(`UPDATE users SET status = 'active' WHERE id = ?`, [userId])
+      await run(`UPDATE users SET status = 'active' WHERE id = ?`, [userId])
     }
   }
 
-  audit({
+  await audit({
     actorUserId: userId,
     actorEmail: targetEmail,
     actorRole: role,
@@ -82,7 +86,7 @@ if (isMain) {
   const roleArg = process.argv.find((a) => a.startsWith('--role='))
   const role = roleArg ? roleArg.split('=')[1] : 'SUPER_ADMIN'
   seed({ silent: true })
-  bootstrapAdmin({ role, resetPassword })
+    .then(() => bootstrapAdmin({ role, resetPassword }))
     .then((result) => {
       console.log(`[bootstrap-admin] email=${result.email} role=${result.role} ${result.created ? 'created' : 'existing'}`)
       if (result.password) {
@@ -91,7 +95,7 @@ if (isMain) {
       } else if (!result.created) {
         console.log('[bootstrap-admin] Mật khẩu không đổi. Dùng --reset-password để đặt lại.')
       }
-      closeDb()
+      return close()
     })
     .catch((err) => {
       console.error('[bootstrap-admin] Lỗi:', err.message)

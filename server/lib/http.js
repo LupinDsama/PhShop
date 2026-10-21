@@ -14,7 +14,8 @@ export class ApiError extends Error {
 
 export const badRequest = (msg, details) => new ApiError(400, 'bad_request', msg, details)
 export const unauthorized = (msg = 'Bạn cần đăng nhập.') => new ApiError(401, 'unauthorized', msg)
-export const forbidden = (msg = 'Bạn không có quyền thực hiện thao tác này.') => new ApiError(403, 'forbidden', msg)
+export const forbidden = (msg = 'Bạn không có quyền thực hiện thao tác này.', details = undefined) =>
+  new ApiError(403, 'forbidden', msg, details)
 export const notFound = (msg = 'Không tìm thấy dữ liệu.') => new ApiError(404, 'not_found', msg)
 export const conflict = (msg, details) => new ApiError(409, 'conflict', msg, details)
 export const tooMany = (msg = 'Bạn đã thao tác quá nhiều lần. Vui lòng thử lại sau.') => new ApiError(429, 'rate_limited', msg)
@@ -89,6 +90,17 @@ export async function readJson(req, limit) {
     if (err instanceof ApiError) throw err
     throw badRequest('Body không phải JSON hợp lệ.')
   }
+}
+
+/** Gộp nhiều header Set-Cookie thành một mảng chuẩn. */
+export function mergeSetCookie(existing, list = []) {
+  const out = []
+  if (existing) {
+    if (Array.isArray(existing)) out.push(...existing)
+    else out.push(existing)
+  }
+  out.push(...list)
+  return out.length ? out : null
 }
 
 export function sendJson(res, status, payload, headers = {}) {

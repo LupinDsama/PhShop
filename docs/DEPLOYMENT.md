@@ -1,7 +1,31 @@
 # PhShop — Hướng dẫn Triển khai
 
-> Kiến trúc sau audit: **Frontend React (SPA) + Backend Node.js API + SQLite**.
-> Backend phục vụ đồng thời API (`/api/*`) và file tĩnh trong `dist/`.
+> Kiến trúc sau audit: **Frontend React (SPA) trên Cloudflare Pages** + **API Node.js trên Cloudflare Worker (D1)**.
+> Pages Functions làm proxy `/api/*` → Worker để frontend và API **cùng origin** (cookie phiên/CSRF là first-party).
+
+---
+
+## 0. Kiến trúc triển khai hiện tại (đang chạy)
+
+```
+Trình duyệt
+   │  https://phshop.pages.dev            (Cloudflare Pages — file tĩnh trong dist/)
+   │  https://phshop.pages.dev/api/*      (Pages Function  functions/api/[[path]].js  → proxy)
+   ▼
+Cloudflare Worker  https://phshop-api.lupindsama.workers.dev   (server/worker.js)
+   │
+   ▼
+Cloudflare D1  database "phshop"  (18 bảng, region APAC)
+```
+
+| Thành phần | Nơi chạy | Lệnh |
+|---|---|---|
+| Frontend | Cloudflare Pages (`phshop`) | `npm run deploy:web` |
+| API | Cloudflare Worker (`phshop-api`) | `npm run deploy:api` |
+| Database | Cloudflare D1 (`phshop`) | schema: `npx wrangler d1 execute phshop --remote --file=server/db/schema.sql -c wrangler.worker.toml` |
+| Dữ liệu mẫu | D1 | `node server/scripts/seed.js --sql > data/seed.sql` → `npx wrangler d1 execute phshop --remote --file=data/seed.sql -c wrangler.worker.toml` |
+
+> Worker chạy cùng lõi API với Node server (`server/app.js`), nên logic nghiệp vụ chỉ có **một bản duy nhất**.
 
 ---
 
@@ -11,8 +35,8 @@
 |---|---|
 | Node.js | **≥ 22.5.0** (dùng `node:sqlite` có sẵn — không cần cài native module) |
 | npm | ≥ 10 |
-| Dung lượng | ~200 MB (node_modules) + file SQLite (database) |
-| Hệ điều hành | Linux / macOS / Windows (đã kiểm thử trên Windows 11 + Node 22) |
+| Cloudflare | Tài khoản có Pages + Workers + D1 (đã dùng: `LupinDsama`) |
+| Dung lượng | ~200 MB (node_modules) |
 
 > `node:sqlite` đang ở trạng thái **experimental** trong Node 22 → script dùng cờ
 > `--disable-warning=ExperimentalWarning` để log sạch. API của module đã ổn định đủ dùng.
@@ -140,42 +164,31 @@ Cần làm:
    `order.create` + `order.update` (thông báo trạng thái cho khách), `contact.submit` (acknowledge).
 4. **Không** ghi token vào log sau khi đã tích hợp email.
 
-### 4.3. Cloudflare Pages + Workers/D1 (BLOCKER)
+### 4.3. Realtime: SSE (Node) + polling (Worker)
 
-- ✅ **Frontend** vẫn deploy lên Cloudflare Pages bình thường:
-  ```bash
-  npm run build
-  npx wrangler pages deploy dist --project-name phshop
-  ```
-  Nhưng **chỉ phần frontend** — trang sẽ gọi API ở origin khác.
-- ❌ **Backend** chưa chạy được trên Cloudflare Pages vì:
-  1. `node:sqlite` không tồn tại trong môi trường Workers/Pages Functions.
-  2. Hệ thống file SQLite cần persistent filesystem (không có trên Workers).
-  3. Pages Functions không phải là mô hình long-running phù hợp cho server Node hiện tại.
+Cloudflare Worker chạy **mỗi request ở một isolate riêng**, nên bộ nhớ in-memory của SSE
+không dùng chung được giữa các request → sự kiện có thể không tới client.
 
-  **Hai lựa chọn:**
-  - **(A) Khuyến nghị — giữ backend trên Node host** (Railway/Render/Fly/VM):
-    - Frontend: Cloudflare Pages (biến môi trường build `VITE_API_BASE_URL=https://api.phshop.vn`).
-    - Backend: Node host, `PHSHOP_CORS_ORIGINS=https://phshop.pages.dev`,
-      `PHSHOP_COOKIE_SAMESITE=None`, `PHSHOP_SECURE_COOKIES=true`.
-    - Hoạt động ngay với code hiện tại (đã có CORS allow-list + SameSite config).
-  - **(B) Viết lại tầng dữ liệu cho D1** (khoảng 1–2 ngày công):
-    - Tạo D1 database, đổi `server/db/index.js` sang adapter D1 (async API).
-    - Chuyển API thành Pages Function `functions/api/[[path]].js` hoặc Worker.
-    - Vẫn giữ nguyên `server/lib/*` (business logic không phụ thuộc DB) và `server/routes/*`.
-    - Cần tài khoản Cloudflare để kiểm chứng — hiện **chưa thể kiểm thử** trong môi trường này.
+Vì vậy hệ thống dùng **hai kênh song song**:
+1. **SSE** (`/api/events`) — đẩy ngay lập tức (hiệu quả trên Node server; trên Worker là "best effort").
+2. **Polling** (`/api/events/poll?since=<id>`) — luôn chạy mỗi 3 s, đọc từ bảng `events_log` trong D1.
+   Kênh này là nguồn đảm bảo cho mọi môi trường.
 
-  > Ưu tiên hiện tại của dự án: **(A)** — đã hoạt động và được kiểm thử đầy đủ.
+Client (`src/lib/realtime.js`) dùng cả hai và bỏ qua sự kiện trùng bằng `eventId` tăng dần.
+
+> Test: `npm test` (Node) chạy đủ cả SSE lẫn polling; `npm run test:d1` (Worker + D1) chạy polling
+> và **bỏ qua 3 test SSE-live** với lý do được ghi rõ (giới hạn nền tảng, không phải lỗi logic).
 
 ---
 
-## 5. Triển khai Cloudflare Pages (frontend)
+## 5. Triển khai Cloudflare Pages (frontend + proxy)
 
-`wrangler.toml` hiện tại:
+`wrangler.toml` (Pages) và `wrangler.worker.toml` (Worker) là hai file cấu hình riêng:
 
 ```toml
+# wrangler.toml — Pages
 name = "phshop"
-compatibility_date = "2026-10-21"
+compatibility_date = "2025-04-01"
 
 [pages]
   pages_build_output_dir = "dist"
@@ -184,17 +197,31 @@ compatibility_date = "2026-10-21"
 Lệnh:
 
 ```bash
-npm run build
-npx wrangler pages deploy dist --project-name phshop
+npm run deploy:web
+# = npm run build && wrangler pages deploy dist --project-name phshop
 ```
 
-Nếu frontend và API khác origin, đặt biến môi trường build:
+> `wrangler pages deploy` tự đóng gói thư mục `functions/` → Pages Function
+> `functions/api/[[path]].js` làm proxy `/api/*` tới Worker. Nhờ đó frontend và API
+> **cùng origin**, cookie phiên/CSRF là first-party (`SameSite=Lax` là đủ).
 
-```bash
-VITE_API_BASE_URL=https://api.phshop.vn npm run build
-```
+### 5.1. Vì sao cần proxy thay vì gọi thẳng Worker?
 
-> `public/_redirects` (`/* /index.html 200`) đã giữ để SPA deep-link hoạt động trên Pages.
+| Cách | Hệ quả |
+|---|---|
+| Gọi thẳng `https://phshop-api...` (khác origin) | Cookie phải `SameSite=None; Secure`; cookie CSRF do domain API phát ra → **JavaScript của Pages không đọc được** → không lấy được token CSRF → mọi POST bị 403. Đây chính là lỗi đã gặp và đã sửa bằng proxy. |
+| Proxy qua Pages (hiện tại) | Cùng origin → cookie first-party, đọc được bằng `document.cookie`, không cần CORS. |
+
+### 5.2. Nếu vẫn muốn gọi thẳng Worker (ví dụ cho mobile app)
+
+- Đặt `PHSHOP_CORS_ORIGINS` trên Worker (allow-list, có `Vary: Origin`).
+- Đặt `PHSHOP_COOKIE_SAMESITE=None` + `PHSHOP_SECURE_COOKIES=true`.
+- Frontend phải lấy CSRF token từ **body** của response (`csrfToken`) thay vì đọc cookie —
+  cơ chế này đã được cài trong `src/lib/api.js` (fallback + tự refresh khi gặp 403).
+
+> Lưu ý kỹ thuật: `Headers.append('set-cookie', ...)` phải được dùng thay vì đưa mảng vào object
+> `headers` — nếu không, nhiều cookie bị gộp thành một header `"a=1, b=2"` và trình duyệt parse sai
+> (cookie CSRF bị coi là HttpOnly → 403). Đây là lỗi đã phát hiện và sửa ở cả Worker lẫn proxy.
 
 ---
 
@@ -202,21 +229,26 @@ VITE_API_BASE_URL=https://api.phshop.vn npm run build
 
 ```bash
 npm ci
-npm test              # 105 test unit + API (bắt buộc xanh)
+npm test              # 106 test unit + API (bắt buộc xanh)
 npm run test:e2e      # 25 test trình duyệt thật trên bản build
+npm run test:e2e:dev  # 25 test trên dev server (bắt lỗi StrictMode)
+npm run test:d1       # 106 test trên Cloudflare Worker + D1 (wrangler dev)
 npm run lint
 npm run build
 ```
 
 Checklist phát hành:
 
-- [ ] `npm test` → 105/105
+- [ ] `npm test` → 106/106
 - [ ] `npm run test:e2e` → 25/25, 0 lỗi console
-- [ ] `PHSHOP_DB_PATH` trỏ tới volume ghi được, backup tự động đã bật
-- [ ] `NODE_ENV=production`, `PHSHOP_SECURE_COOKIES=true`, HTTPS phía trước
-- [ ] Tài khoản quản trị đã bootstrap bằng **script**, mật khẩu lấy từ secret manager
+- [ ] `npm run test:d1` → 7/7 file test xanh (3 test SSE-live được skip có lý do)
+- [ ] Schema D1 đã áp dụng: `npx wrangler d1 execute phshop --remote --file=server/db/schema.sql -c wrangler.worker.toml`
+- [ ] Seed danh mục đã nạp: `node server/scripts/seed.js --sql > data/seed.sql` → `npx wrangler d1 execute phshop --remote --file=data/seed.sql -c wrangler.worker.toml`
+- [ ] Tài khoản quản trị đã bootstrap bằng **script** (mật khẩu lấy từ secret manager)
+- [ ] `NODE_ENV=production`, `PHSHOP_SECURE_COOKIES=true`, `PHSHOP_COOKIE_SAMESITE=None` (khi gọi thẳng Worker)
 - [ ] Rate limit & CSP đang bật (mặc định)
-- [ ] Health check `/api/health` trả `ok:true` sau khi deploy
+- [ ] Health check `https://phshop.pages.dev/api/health` trả `ok:true` sau khi deploy
+- [ ] Dữ liệu test đã dọn: `npm run db:cleanup`
 - [ ] Ghi log audit log được thu thập (log aggregation)
 
 ---
@@ -225,10 +257,11 @@ Checklist phát hành:
 
 | Môi trường | Domain | Database | Ghi chú |
 |---|---|---|---|
-| Local | http://localhost:5173 | `data/phshop.db` | `npm run dev` |
+| Local | http://localhost:5173 | `data/phshop.db` (node:sqlite) | `npm run dev` |
 | Test/E2E | http://127.0.0.1:8791 | `data/e2e.db` (xoá mỗi lần chạy) | `npm run test:e2e` |
-| Staging | theo hạ tầng | DB riêng | Cần SMTP + payment credentials |
-| Production | https://phshop.pages.dev | DB riêng | Theo phương án A hoặc B ở §4.3 |
+| Worker + D1 (local) | http://127.0.0.1:8790 | D1 local của wrangler | `npm run test:d1` |
+| Staging | theo hạ tầng | D1 riêng | Cần SMTP + payment credentials |
+| Production | https://phshop.pages.dev | D1 `phshop` | API qua Pages Function proxy |
 
 ---
 
@@ -239,9 +272,24 @@ Checklist phát hành:
 | 1 | SMTP (nodemailer/Resend) | `PHSHOP_SMTP_*` | ❌ Chưa có — email xác minh/reset chưa gửi được |
 | 2 | MoMo | `PHSHOP_MOMO_API_KEY` | ❌ Chưa có — API trả 409, chỉ dùng COD |
 | 3 | Chuyển khoản ngân hàng | `PHSHOP_BANK_TRANSFER_API_KEY` | ❌ Chưa có |
-| 4 | Cloudflare (D1/Workers) | `wrangler whoami` | ❌ Chưa đăng nhập — backend chạy trên Node host |
-| 5 | Redis/KV cho rate limit dùng chung | — | ⚠️ Chưa cần khi 1 instance; cần khi scale |
-| 6 | Ảnh sản phẩm | — | ⚠️ Đang dùng Unsplash CDN (nên chuyển sang bucket riêng) |
+| 4 | Cloudflare (Pages + Workers + D1) | — | ✅ Đã cấu hình & deploy (account `LupinDsama`) |
+| 5 | Redis/KV cho rate limit dùng chung | — | ⚠️ Rate limit hiện in-memory theo isolate Worker → mỗi isolate một bộ đếm; cần KV/Durable Object khi scale nhiều instance |
+| 6 | Ảnh sản phẩm | — | ⚠️ Đang dùng Unsplash CDN (nên chuyển sang bucket riêng + CSP `img-src`) |
+| 7 | Mật khẩu admin production | secret manager | ⚠️ Đang dùng mật khẩu tạm → **đổi ngay** bằng `node server/scripts/bootstrap-admin-d1.mjs` với `PHSHOP_ADMIN_PASSWORD` |
 
 > Không có secret nào nằm trong repository. Mọi giá trị trên đều phải cấu hình qua biến môi trường
 > hoặc secret manager của hạ tầng.
+
+---
+
+## 9. Quy trình cập nhật tài khoản quản trị trên D1
+
+```bash
+# 1) Sinh SQL (mật khẩu lấy từ biến môi trường, không ghi vào repo)
+PHSHOP_ADMIN_PASSWORD='<mật khẩu mới>' node server/scripts/bootstrap-admin-d1.mjs > data/admin.sql
+
+# 2) Nạp vào D1
+npx wrangler d1 execute phshop --remote --file=data/admin.sql -c wrangler.worker.toml
+```
+
+Lệnh trên **idempotent** (`ON CONFLICT(email) DO UPDATE`), đồng thời ghi một dòng audit log.

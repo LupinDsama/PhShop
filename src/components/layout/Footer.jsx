@@ -1,4 +1,6 @@
 export default function Footer() {
+  // Tính năm một lần để không phụ thuộc Date() trong render (React purity).
+  const year = new Date().getFullYear()
   return (
     <footer className="border-t border-gray-700 bg-gray-900 text-gray-200 mt-auto">
       <div className="container-page py-12 md:py-16">
@@ -38,7 +40,7 @@ export default function Footer() {
           </div>
         </div>
         <div className="border-t border-gray-700 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-gray-400">
-          <span>© {new Date().getFullYear()} PhShop. Mua sắm mô hình 3D.</span>
+          <span>© {year} PhShop. Mua sắm mô hình 3D.</span>
           <span>Hoạt động trên Cloudflare Pages</span>
         </div>
       </div>

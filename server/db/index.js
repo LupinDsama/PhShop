@@ -1,60 +1,52 @@
 /**
- * Kết nối SQLite (node:sqlite) + migration schema idempotent.
+ * Dispatcher tầng database.
+ *
+ * Route code chỉ import từ đây nên không bị ràng buộc vào nền tảng:
+ *  - Node server  → dùng adapter SQLite (./sqlite.js, node:sqlite)
+ *  - Cloudflare   → dùng adapter D1 (./d1.js)
+ *
+ * Adapter được cấu hình 1 lần khi khởi động qua setAdapter().
  */
-import fs from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { DatabaseSync } from 'node:sqlite'
-import config from '../config.js'
+let adapter = null
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-
-let db = null
-
-export function getDb() {
-  if (db) return db
-  const dir = path.dirname(config.dbPath)
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  db = new DatabaseSync(config.dbPath)
-  db.exec('PRAGMA journal_mode = WAL;')
-  db.exec('PRAGMA foreign_keys = ON;')
-  db.exec('PRAGMA busy_timeout = 5000;')
-  const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
-  db.exec(schema)
-  return db
+export function setAdapter(next) {
+  adapter = next
+  return adapter
 }
 
-/** Chạy một hàm trong transaction. Tự rollback khi có lỗi. */
-export function tx(fn) {
-  const database = getDb()
-  database.exec('BEGIN IMMEDIATE')
-  try {
-    const result = fn(database)
-    database.exec('COMMIT')
-    return result
-  } catch (err) {
-    try { database.exec('ROLLBACK') } catch { /* ignore */ }
-    throw err
+export function getAdapter() {
+  if (!adapter) {
+    throw new Error('Chưa cấu hình adapter database. Gọi setAdapter() khi khởi động.')
   }
+  return adapter
 }
 
-export function all(sql, params = []) {
-  return getDb().prepare(sql).all(...params)
+export async function init() {
+  return getAdapter().init?.()
 }
 
-export function one(sql, params = []) {
-  return getDb().prepare(sql).get(...params) ?? null
+export async function close() {
+  return getAdapter().close?.()
 }
 
-export function run(sql, params = []) {
-  return getDb().prepare(sql).run(...params)
+export async function all(sql, params = []) {
+  return getAdapter().all(sql, params)
 }
 
-export function closeDb() {
-  if (db) {
-    db.close()
-    db = null
-  }
+export async function one(sql, params = []) {
+  return getAdapter().one(sql, params)
 }
 
-export default { getDb, tx, all, one, run, closeDb }
+export async function run(sql, params = []) {
+  return getAdapter().run(sql, params)
+}
+
+export async function tx(fn) {
+  return getAdapter().tx(fn)
+}
+
+export default { setAdapter, getAdapter, init, close, all, one, run, tx }
+
+// Alias giữ tương thích
+export const getDb = init
+export const closeDb = close

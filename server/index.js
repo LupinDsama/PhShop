@@ -1,29 +1,25 @@
 /**
- * PhShop backend server (Node.js, zero external runtime dependencies).
+ * PhShop backend server cho Node.js (không dùng dependency runtime ngoài).
  *
  * - API JSON + REST tại /api/*
  * - Realtime qua SSE tại /api/events
  * - Phục vụ static build (dist/) khi chạy production
+ *
+ * Lõi xử lý nằm trong server/app.js (dùng chung với Cloudflare Worker).
  */
 import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 import { URL } from 'node:url'
 import config from './config.js'
-import { createRouter } from './http/router.js'
-import { ApiError, parseCookies, readJson, sendJson, sendNoContent, clientIp } from './lib/http.js'
-import { applySecurityHeaders, ensureCsrfCookie, requireCsrf, consumeRateLimit, applyCors } from './lib/security.js'
-import { getSessionUser } from './lib/session.js'
-import { registerAuthRoutes } from './routes/auth.js'
-import { registerProductRoutes } from './routes/products.js'
-import { registerCartRoutes } from './routes/cart.js'
-import { registerWishlistRoutes } from './routes/wishlist.js'
-import { registerOrderRoutes } from './routes/orders.js'
-import { registerAdminRoutes } from './routes/admin.js'
-import { registerEventRoutes } from './routes/events.js'
-import { registerMiscRoutes } from './routes/misc.js'
-import { getDb, closeDb } from './db/index.js'
+import { createApp } from './app.js'
+import { parseCookies, readJson, clientIp, mergeSetCookie, ApiError } from './lib/http.js'
+import { setAdapter } from './db/index.js'
+import * as sqliteAdapter from './db/sqlite.js'
 import { purgeExpiredSessions } from './lib/session.js'
+
+// Node server dùng adapter SQLite (node:sqlite).
+setAdapter(sqliteAdapter)
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -42,144 +38,91 @@ const MIME = {
   '.webmanifest': 'application/manifest+json',
 }
 
-export function buildRouter() {
-  const router = createRouter()
-  registerAuthRoutes(router)
-  registerProductRoutes(router)
-  registerCartRoutes(router)
-  registerWishlistRoutes(router)
-  registerOrderRoutes(router)
-  registerAdminRoutes(router)
-  registerEventRoutes(router)
-  registerMiscRoutes(router)
-  return router
-}
-
-export function createApp({ router = buildRouter() } = {}) {
-  return async function handler(req, res) {
+export function createNodeHandler(handler = createApp()) {
+  return async function nodeHandler(req, res) {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
     const cookies = parseCookies(req.headers.cookie)
-    const setCookies = []
+    const headers = {}
 
-    applySecurityHeaders(res)
-    applyCors(req, res)
-
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204)
-      res.end()
-      return
-    }
-
-    const ctx = {
-      req,
-      res,
+    const reqLike = {
+      method: req.method,
       url,
-      query: Object.fromEntries(url.searchParams.entries()),
-      params: {},
-      body: {},
-      cookies,
       headers: req.headers,
+      cookies,
       ip: clientIp(req),
       userAgent: req.headers['user-agent'] || '',
-      user: null,
-      csrfToken: null,
-      setCookie: (value) => setCookies.push(value),
-      json: (status, payload, headers = {}) => {
-        flushCookies(res, setCookies)
-        sendJson(res, status, payload, headers)
+      async readJson() {
+        const body = await readJson(req)
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+          throw new ApiError(400, 'bad_request', 'Body phải là JSON object.')
+        }
+        return body
       },
-      noContent: (status = 204, headers = {}) => {
-        flushCookies(res, setCookies)
-        sendNoContent(res, status, headers)
+    }
+
+    const resLike = {
+      setHeader(name, value) { headers[name.toLowerCase()] = value },
+      getHeader(name) { return headers[name.toLowerCase()] },
+      json(status, payload, setCookies = []) {
+        if (res.headersSent) return
+        const finalHeaders = { ...headers }
+        const merged = mergeSetCookie(finalHeaders['set-cookie'], setCookies)
+        if (merged) finalHeaders['Set-Cookie'] = merged
+        const body = JSON.stringify(payload)
+        finalHeaders['Content-Type'] = 'application/json; charset=utf-8'
+        finalHeaders['Content-Length'] = Buffer.byteLength(body)
+        finalHeaders['Cache-Control'] = 'no-store'
+        res.writeHead(status, finalHeaders)
+        res.end(body)
+      },
+      noContent(status = 204, setCookies = []) {
+        if (res.headersSent) return
+        const finalHeaders = { ...headers }
+        const merged = mergeSetCookie(finalHeaders['set-cookie'], setCookies)
+        if (merged) finalHeaders['Set-Cookie'] = merged
+        res.writeHead(status, finalHeaders)
+        res.end()
+      },
+      notFound() {
+        resLike.json(404, { error: { code: 'not_found', message: 'Endpoint không tồn tại.' } })
+      },
+      openStream(streamHeaders = {}, setCookies = []) {
+        const finalHeaders = { ...headers, ...streamHeaders }
+        const merged = mergeSetCookie(finalHeaders['set-cookie'], setCookies)
+        if (merged) finalHeaders['Set-Cookie'] = merged
+        res.writeHead(200, finalHeaders)
+        return {
+          send: (text) => { try { res.write(text) } catch { /* client đã đóng */ } },
+          close: () => { try { res.end() } catch { /* ignore */ } },
+        }
       },
     }
 
     try {
-      if (!url.pathname.startsWith('/api/')) {
-        return await serveStatic(req, res, url)
-      }
-
-      ctx.csrfToken = ensureCsrfCookie(req, res, cookies)
-      ctx.user = getSessionUser(cookies.phshop_sid)
-
-      const { route, params } = router.match(req.method, url.pathname)
-      ctx.params = params
-
-      // Rate limit tổng cho API.
-      consumeRateLimit('api', ctx.ip, config.rateLimits.api)
-
-      // CSRF cho mọi request thay đổi trạng thái (double-submit cookie).
-      if (route.opts.csrf !== false) {
-        requireCsrf(req, cookies)
-      }
-
-      // Phân quyền
-      const roles = route.opts.role
-      if (roles) {
-        if (!ctx.user) throw new ApiError(401, 'unauthorized', 'Bạn cần đăng nhập.')
-        if (!roles.includes(ctx.user.role)) {
-          throw new ApiError(403, 'forbidden', 'Bạn không có quyền thực hiện thao tác này.')
-        }
-      } else if (route.opts.auth !== false && !ctx.user) {
-        throw new ApiError(401, 'unauthorized', 'Bạn cần đăng nhập.')
-      }
-
-      if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
-        ctx.body = await readJson(req)
-      }
-
-      const result = await route.handler(ctx)
-      if (result === undefined) return undefined // handler tự quản lý response (SSE)
-      flushCookies(res, setCookies)
-      if (!res.headersSent) sendJson(res, 200, result ?? { ok: true })
+      await handler(reqLike, resLike)
     } catch (err) {
-      handleError(res, err, setCookies)
+      console.error('[phshop] Unhandled error:', err)
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ error: { code: 'internal_error', message: 'Đã xảy ra lỗi hệ thống.' } }))
+      }
     }
   }
 }
 
-function flushCookies(res, setCookies) {
-  if (!setCookies.length) return
-  const existing = res.getHeader('Set-Cookie')
-  // Phải copy mảng, không giữ tham chiếu tới setCookies (sẽ bị xoá bên dưới).
-  const all = existing ? [].concat(existing, setCookies) : [...setCookies]
-  res.setHeader('Set-Cookie', all)
-  setCookies.length = 0
-}
-function handleError(res, err, setCookies) {
-  flushCookies(res, setCookies)
-  if (res.headersSent) {
-    try { res.end() } catch { /* ignore */ }
-    return
-  }
-  if (err instanceof ApiError) {
-    sendJson(res, err.status, {
-      error: { code: err.code, message: err.message, details: err.details },
-    })
-    return
-  }
-  // Không lộ stack trace cho client.
-  console.error('[phshop] Unhandled error:', err)
-  sendJson(res, 500, {
-    error: {
-      code: 'internal_error',
-      message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.',
-      ...(config.isProd ? {} : { debug: String(err?.message || err) }),
-    },
-  })
-}
-
-async function serveStatic(req, res, url) {
+function serveStatic(req, res, url) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
-    sendJson(res, 405, { error: { code: 'method_not_allowed', message: 'Method không hỗ trợ.' } })
+    res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8' })
+    res.end(JSON.stringify({ error: { code: 'method_not_allowed', message: 'Method không hỗ trợ.' } }))
     return
   }
   const staticDir = config.staticDir
   const indexFile = path.join(staticDir, 'index.html')
   if (!fs.existsSync(indexFile)) {
-    sendJson(res, 404, {
+    res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' })
+    res.end(JSON.stringify({
       error: { code: 'not_found', message: 'Frontend chưa được build. Chạy `npm run build` hoặc dùng `npm run dev`.' },
-    })
+    }))
     return
   }
   const safePath = path.normalize(url.pathname).replace(/^(\.\.[/\\])+/, '')
@@ -201,9 +144,17 @@ async function serveStatic(req, res, url) {
 }
 
 export function startServer({ port = config.port, host = config.host } = {}) {
-  getDb()
+  sqliteAdapter.init()
   purgeExpiredSessions()
-  const server = http.createServer(createApp())
+  const app = createApp()
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
+    if (!url.pathname.startsWith('/api/')) {
+      serveStatic(req, res, url)
+      return
+    }
+    await createNodeHandler(app)(req, res)
+  })
   server.keepAliveTimeout = 65000
   server.headersTimeout = 70000
   return new Promise((resolve) => {
@@ -220,7 +171,7 @@ if (isMain) {
     console.log(`[phshop] Static: ${config.staticDir}`)
     const shutdown = () => {
       server.close(() => {
-        closeDb()
+        sqliteAdapter.close()
         process.exit(0)
       })
       setTimeout(() => process.exit(0), 3000).unref()

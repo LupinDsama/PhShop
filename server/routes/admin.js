@@ -12,7 +12,6 @@ import { serializeOrder, logOrderEvent } from '../lib/orders.js'
 import { audit } from '../lib/audit.js'
 import { publish } from '../lib/events.js'
 import { randomToken, hashToken, hashPassword } from '../lib/password.js'
-
 import { parseJsonSafe } from '../lib/http.js'
 
 const requireRole = (ctx, roles) => {
@@ -21,8 +20,8 @@ const requireRole = (ctx, roles) => {
   }
 }
 
-function serializeAdminProduct(p) {
-  const variants = all(`SELECT * FROM variants WHERE product_id = ? ORDER BY id`, [p.id])
+async function serializeAdminProduct(p) {
+  const variants = await all(`SELECT * FROM variants WHERE product_id = ? ORDER BY id`, [p.id])
   return {
     id: p.id,
     slug: p.slug,
@@ -55,16 +54,18 @@ function serializeAdminProduct(p) {
 export function registerAdminRoutes(router) {
   // ---------- Dashboard ----------
   router.get('/api/admin/stats', async (ctx) => {
-    const orders = all(`SELECT * FROM orders`)
+    const orders = await all(`SELECT * FROM orders`)
     const paid = orders.filter((o) => o.payment_status === 'PAID')
     const revenue = paid.reduce((s, o) => s + o.total, 0)
     const pending = orders.filter((o) => o.status === 'PENDING_CONFIRMATION').length
-    const customers = one(`SELECT COUNT(*) AS c FROM users WHERE role = 'CUSTOMER'`).c
-    const products = one(`SELECT COUNT(*) AS c FROM products WHERE status = 'active'`).c
-    const lowStock = all(
+    const customers = (await one(`SELECT COUNT(*) AS c FROM users WHERE role = 'CUSTOMER'`)).c
+    const products = (await one(`SELECT COUNT(*) AS c FROM products WHERE status = 'active'`)).c
+    const lowStock = await all(
       `SELECT v.id, v.sku, v.stock, p.name FROM variants v JOIN products p ON p.id = v.product_id WHERE v.stock <= 3 ORDER BY v.stock ASC LIMIT 20`,
     )
-    const recentOrders = all(`SELECT * FROM orders ORDER BY created_at DESC LIMIT 8`).map((o) => serializeOrder(o))
+    const recentRows = await all(`SELECT * FROM orders ORDER BY created_at DESC LIMIT 8`)
+    const recentOrders = []
+    for (const o of recentRows) recentOrders.push(await serializeOrder(o))
     const byStatus = ORDER_STATUSES.map((status) => ({
       status,
       count: orders.filter((o) => o.status === status).length,
@@ -73,10 +74,10 @@ export function registerAdminRoutes(router) {
       status,
       count: orders.filter((o) => o.payment_status === status).length,
     }))
-    const revenueByDay = all(
+    const revenueByDay = (await all(
       `SELECT substr(created_at, 1, 10) AS day, SUM(total) AS total, COUNT(*) AS count
        FROM orders WHERE payment_status = 'PAID' GROUP BY day ORDER BY day DESC LIMIT 14`,
-    ).reverse()
+    )).reverse()
     return ctx.json(200, {
       totals: {
         orders: orders.length,
@@ -129,13 +130,15 @@ export function registerAdminRoutes(router) {
       params.push(ctx.query.product, `%${ctx.query.product}%`)
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
-    const total = one(`SELECT COUNT(*) AS c FROM orders o ${whereSql}`, params).c
-    const rows = all(
+    const total = (await one(`SELECT COUNT(*) AS c FROM orders o ${whereSql}`, params)).c
+    const rows = await all(
       `SELECT o.* FROM orders o ${whereSql} ORDER BY o.created_at DESC, o.id DESC LIMIT ? OFFSET ?`,
       [...params, limit, offset],
     )
+    const orders = []
+    for (const o of rows) orders.push(await serializeOrder(o))
     return ctx.json(200, {
-      orders: rows.map((o) => serializeOrder(o)),
+      orders,
       total,
       page,
       limit,
@@ -144,14 +147,14 @@ export function registerAdminRoutes(router) {
   }, { role: ['ADMIN', 'SUPER_ADMIN', 'SUPPORT'] })
 
   router.get('/api/admin/orders/:id', async (ctx) => {
-    const order = one(`SELECT * FROM orders WHERE id = ?`, [ctx.params.id])
+    const order = await one(`SELECT * FROM orders WHERE id = ?`, [ctx.params.id])
     if (!order) throw notFound('Không tìm thấy đơn hàng.')
-    return ctx.json(200, { order: serializeOrder(order, { includeInternal: true }) })
+    return ctx.json(200, { order: await serializeOrder(order, { includeInternal: true }) })
   }, { role: ['ADMIN', 'SUPER_ADMIN', 'SUPPORT'] })
 
   router.patch('/api/admin/orders/:id', async (ctx) => {
     const body = parse(orderUpdateSchema, ctx.body)
-    const order = one(`SELECT * FROM orders WHERE id = ?`, [ctx.params.id])
+    const order = await one(`SELECT * FROM orders WHERE id = ?`, [ctx.params.id])
     if (!order) throw notFound('Không tìm thấy đơn hàng.')
 
     if (body.expectedVersion !== undefined && body.expectedVersion !== order.version) {
@@ -185,13 +188,13 @@ export function registerAdminRoutes(router) {
     if (body.trackingNumber !== undefined) push('tracking_number', body.trackingNumber)
 
     if (fields.length) {
-      tx(() => {
-        run(
+      await tx(async () => {
+        await run(
           `UPDATE orders SET ${fields.join(', ')}, version = version + 1, updated_at = datetime('now') WHERE id = ?`,
           [...params, order.id],
         )
         if (nextStatus !== order.status) {
-          logOrderEvent(order.id, {
+          await logOrderEvent(order.id, {
             type: 'status_change',
             fromStatus: order.status,
             toStatus: nextStatus,
@@ -201,7 +204,7 @@ export function registerAdminRoutes(router) {
           })
         }
         if (nextPayment !== order.payment_status) {
-          logOrderEvent(order.id, {
+          await logOrderEvent(order.id, {
             type: 'payment_change',
             paymentFrom: order.payment_status,
             paymentTo: nextPayment,
@@ -211,7 +214,7 @@ export function registerAdminRoutes(router) {
           })
         }
         if (body.note) {
-          logOrderEvent(order.id, {
+          await logOrderEvent(order.id, {
             type: 'note',
             actorUserId: ctx.user.id,
             actorRole: ctx.user.role,
@@ -221,7 +224,7 @@ export function registerAdminRoutes(router) {
       })
     }
 
-    audit({
+    await audit({
       actorUserId: ctx.user.id,
       actorEmail: ctx.user.email,
       actorRole: ctx.user.role,
@@ -234,9 +237,9 @@ export function registerAdminRoutes(router) {
       userAgent: ctx.userAgent,
     })
 
-    const updated = one(`SELECT * FROM orders WHERE id = ?`, [order.id])
+    const updated = await one(`SELECT * FROM orders WHERE id = ?`, [order.id])
     // Realtime: báo cho chủ đơn và cho admin khác.
-    publish([`user:${order.user_id}`, 'admin'], {
+    await publish([`user:${order.user_id}`, 'admin'], {
       orderId: order.id,
       userId: order.user_id,
       status: nextStatus,
@@ -244,7 +247,7 @@ export function registerAdminRoutes(router) {
       updatedAt: new Date().toISOString(),
     }, { type: 'order.updated' })
 
-    return ctx.json(200, { order: serializeOrder(updated, { includeInternal: true }) })
+    return ctx.json(200, { order: await serializeOrder(updated, { includeInternal: true }) })
   }, { role: ['ADMIN', 'SUPER_ADMIN', 'SUPPORT'] })
 
   // ---------- Products ----------
@@ -265,10 +268,12 @@ export function registerAdminRoutes(router) {
       params.push(ctx.query.status)
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
-    const total = one(`SELECT COUNT(*) AS c FROM products ${whereSql}`, params).c
-    const rows = all(`SELECT * FROM products ${whereSql} ORDER BY id LIMIT ? OFFSET ?`, [...params, limit, offset])
+    const total = (await one(`SELECT COUNT(*) AS c FROM products ${whereSql}`, params)).c
+    const rows = await all(`SELECT * FROM products ${whereSql} ORDER BY id LIMIT ? OFFSET ?`, [...params, limit, offset])
+    const products = []
+    for (const p of rows) products.push(await serializeAdminProduct(p))
     return ctx.json(200, {
-      products: rows.map(serializeAdminProduct),
+      products,
       total,
       page,
       limit,
@@ -278,12 +283,12 @@ export function registerAdminRoutes(router) {
 
   router.post('/api/admin/products', async (ctx) => {
     const body = parse(productSchema, ctx.body)
-    if (one(`SELECT id FROM products WHERE slug = ?`, [body.slug])) {
+    if (await one(`SELECT id FROM products WHERE slug = ?`, [body.slug])) {
       throw conflict('Slug đã tồn tại. Vui lòng chọn slug khác.')
     }
     const productId = `p_${randomToken(6).replace(/[^a-z0-9]/gi, '').toLowerCase()}`
-    tx(() => {
-      run(
+    await tx(async () => {
+      await run(
         `INSERT INTO products (id, slug, name, category, description, base_price, images, status, production_days, featured, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
         [
@@ -301,7 +306,7 @@ export function registerAdminRoutes(router) {
       )
       for (const v of body.variants) {
         const variantId = v.id || `v_${randomToken(6).replace(/[^a-z0-9]/gi, '').toLowerCase()}`
-        run(
+        await run(
           `INSERT INTO variants (id, product_id, sku, color, size, price, stock, min_qty, max_qty, status, lead_time_days, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
           [
@@ -320,7 +325,7 @@ export function registerAdminRoutes(router) {
         )
       }
     })
-    audit({
+    await audit({
       actorUserId: ctx.user.id,
       actorEmail: ctx.user.email,
       actorRole: ctx.user.role,
@@ -331,19 +336,19 @@ export function registerAdminRoutes(router) {
       ip: ctx.ip,
       userAgent: ctx.userAgent,
     })
-    const created = one(`SELECT * FROM products WHERE id = ?`, [productId])
-    return ctx.json(201, { product: serializeAdminProduct(created) })
+    const created = await one(`SELECT * FROM products WHERE id = ?`, [productId])
+    return ctx.json(201, { product: await serializeAdminProduct(created) })
   }, { role: ['ADMIN', 'SUPER_ADMIN'] })
 
   router.patch('/api/admin/products/:id', async (ctx) => {
     const body = parse(productPatchSchema, ctx.body)
-    const product = one(`SELECT * FROM products WHERE id = ?`, [ctx.params.id])
+    const product = await one(`SELECT * FROM products WHERE id = ?`, [ctx.params.id])
     if (!product) throw notFound('Không tìm thấy sản phẩm.')
-    if (body.slug && body.slug !== product.slug && one(`SELECT id FROM products WHERE slug = ?`, [body.slug])) {
+    if (body.slug && body.slug !== product.slug && await one(`SELECT id FROM products WHERE slug = ?`, [body.slug])) {
       throw conflict('Slug đã tồn tại. Vui lòng chọn slug khác.')
     }
-    const before = serializeAdminProduct(product)
-    tx(() => {
+    const before = await serializeAdminProduct(product)
+    await tx(async () => {
       const fields = []
       const params = []
       const push = (col, value) => { fields.push(`${col} = ?`); params.push(value) }
@@ -357,18 +362,21 @@ export function registerAdminRoutes(router) {
       if (body.productionDays !== undefined) push('production_days', body.productionDays)
       if (body.featured !== undefined) push('featured', body.featured ? 1 : 0)
       if (fields.length) {
-        run(`UPDATE products SET ${fields.join(', ')}, updated_at = datetime('now') WHERE id = ?`, [...params, product.id])
+        await run(`UPDATE products SET ${fields.join(', ')}, updated_at = datetime('now') WHERE id = ?`, [...params, product.id])
       }
       if (Array.isArray(body.variants)) {
         for (const v of body.variants) {
-          if (v.id && one(`SELECT id FROM variants WHERE id = ? AND product_id = ?`, [v.id, product.id])) {
-            run(
+          const existing = v.id
+            ? await one(`SELECT id FROM variants WHERE id = ? AND product_id = ?`, [v.id, product.id])
+            : null
+          if (existing) {
+            await run(
               `UPDATE variants SET sku = ?, color = ?, size = ?, price = ?, stock = ?, min_qty = ?, max_qty = ?, status = ?, updated_at = datetime('now') WHERE id = ?`,
               [v.sku, v.color, v.size, v.price, v.stock, v.minQty, v.maxQty, v.status, v.id],
             )
           } else {
             const variantId = `v_${randomToken(6).replace(/[^a-z0-9]/gi, '').toLowerCase()}`
-            run(
+            await run(
               `INSERT INTO variants (id, product_id, sku, color, size, price, stock, min_qty, max_qty, status, lead_time_days, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
               [
@@ -389,7 +397,7 @@ export function registerAdminRoutes(router) {
         }
       }
     })
-    audit({
+    await audit({
       actorUserId: ctx.user.id,
       actorEmail: ctx.user.email,
       actorRole: ctx.user.role,
@@ -401,19 +409,19 @@ export function registerAdminRoutes(router) {
       ip: ctx.ip,
       userAgent: ctx.userAgent,
     })
-    const updated = one(`SELECT * FROM products WHERE id = ?`, [product.id])
-    publish(['admin'], { productId: product.id, updatedAt: new Date().toISOString() }, { type: 'product.updated' })
-    return ctx.json(200, { product: serializeAdminProduct(updated) })
+    const updated = await one(`SELECT * FROM products WHERE id = ?`, [product.id])
+    await publish(['admin'], { productId: product.id, updatedAt: new Date().toISOString() }, { type: 'product.updated' })
+    return ctx.json(200, { product: await serializeAdminProduct(updated) })
   }, { role: ['ADMIN', 'SUPER_ADMIN'] })
 
   router.delete('/api/admin/products/:id', async (ctx) => {
-    const product = one(`SELECT * FROM products WHERE id = ?`, [ctx.params.id])
+    const product = await one(`SELECT * FROM products WHERE id = ?`, [ctx.params.id])
     if (!product) throw notFound('Không tìm thấy sản phẩm.')
-    const orderRefs = one(`SELECT COUNT(*) AS c FROM order_items WHERE product_id = ?`, [product.id]).c
+    const orderRefs = (await one(`SELECT COUNT(*) AS c FROM order_items WHERE product_id = ?`, [product.id])).c
     if (orderRefs > 0) {
-      // Không xóa cứng nếu đã có đơn → chuyển sang discontinued.
-      run(`UPDATE products SET status = 'discontinued', updated_at = datetime('now') WHERE id = ?`, [product.id])
-      audit({
+      // Không xoá cứng nếu đã có đơn → chuyển sang discontinued.
+      await run(`UPDATE products SET status = 'discontinued', updated_at = datetime('now') WHERE id = ?`, [product.id])
+      await audit({
         actorUserId: ctx.user.id,
         actorEmail: ctx.user.email,
         actorRole: ctx.user.role,
@@ -426,8 +434,8 @@ export function registerAdminRoutes(router) {
       })
       return ctx.json(200, { ok: true, discontinued: true })
     }
-    run(`DELETE FROM products WHERE id = ?`, [product.id])
-    audit({
+    await run(`DELETE FROM products WHERE id = ?`, [product.id])
+    await audit({
       actorUserId: ctx.user.id,
       actorEmail: ctx.user.email,
       actorRole: ctx.user.role,
@@ -458,10 +466,11 @@ export function registerAdminRoutes(router) {
       params.push(ctx.query.role)
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
-    const total = one(`SELECT COUNT(*) AS c FROM users ${whereSql}`, params).c
-    const rows = all(`SELECT * FROM users ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, limit, offset])
-    return ctx.json(200, {
-      users: rows.map((u) => ({
+    const total = (await one(`SELECT COUNT(*) AS c FROM users ${whereSql}`, params)).c
+    const rows = await all(`SELECT * FROM users ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, limit, offset])
+    const users = []
+    for (const u of rows) {
+      users.push({
         id: u.id,
         email: u.email,
         name: u.name,
@@ -470,9 +479,12 @@ export function registerAdminRoutes(router) {
         emailVerified: !!u.email_verified,
         status: u.status,
         createdAt: u.created_at,
-        orderCount: one(`SELECT COUNT(*) AS c FROM orders WHERE user_id = ?`, [u.id]).c,
-        lastLoginAt: one(`SELECT MAX(last_seen_at) AS t FROM sessions WHERE user_id = ?`, [u.id])?.t || null,
-      })),
+        orderCount: (await one(`SELECT COUNT(*) AS c FROM orders WHERE user_id = ?`, [u.id])).c,
+        lastLoginAt: (await one(`SELECT MAX(last_seen_at) AS t FROM sessions WHERE user_id = ?`, [u.id]))?.t || null,
+      })
+    }
+    return ctx.json(200, {
+      users,
       total,
       page,
       limit,
@@ -483,19 +495,19 @@ export function registerAdminRoutes(router) {
   router.patch('/api/admin/users/:id/role', async (ctx) => {
     requireRole(ctx, ['SUPER_ADMIN'])
     const body = parse(roleUpdateSchema, ctx.body)
-    const target = one(`SELECT * FROM users WHERE id = ?`, [ctx.params.id])
+    const target = await one(`SELECT * FROM users WHERE id = ?`, [ctx.params.id])
     if (!target) throw notFound('Không tìm thấy tài khoản.')
     if (target.id === ctx.user.id && body.role !== 'SUPER_ADMIN') {
       throw badRequest('Không thể tự hạ quyền của chính mình.')
     }
     if (target.role === 'SUPER_ADMIN' && body.role !== 'SUPER_ADMIN') {
-      const superAdmins = one(`SELECT COUNT(*) AS c FROM users WHERE role = 'SUPER_ADMIN'`).c
+      const superAdmins = (await one(`SELECT COUNT(*) AS c FROM users WHERE role = 'SUPER_ADMIN'`)).c
       if (superAdmins <= 1) throw badRequest('Phải còn ít nhất một SUPER_ADMIN trong hệ thống.')
     }
-    run(`UPDATE users SET role = ?, updated_at = datetime('now') WHERE id = ?`, [body.role, target.id])
+    await run(`UPDATE users SET role = ?, updated_at = datetime('now') WHERE id = ?`, [body.role, target.id])
     // Thu hồi phiên để thay đổi quyền có hiệu lực ngay.
-    run(`UPDATE sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL`, [target.id])
-    audit({
+    await run(`UPDATE sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL`, [target.id])
+    await audit({
       actorUserId: ctx.user.id,
       actorEmail: ctx.user.email,
       actorRole: ctx.user.role,
@@ -513,14 +525,14 @@ export function registerAdminRoutes(router) {
   router.post('/api/admin/users/:id/status', async (ctx) => {
     requireRole(ctx, ['SUPER_ADMIN'])
     const status = ctx.body?.status === 'active' ? 'active' : 'disabled'
-    const target = one(`SELECT * FROM users WHERE id = ?`, [ctx.params.id])
+    const target = await one(`SELECT * FROM users WHERE id = ?`, [ctx.params.id])
     if (!target) throw notFound('Không tìm thấy tài khoản.')
     if (target.id === ctx.user.id) throw badRequest('Không thể tự vô hiệu hóa tài khoản của chính mình.')
-    run(`UPDATE users SET status = ?, updated_at = datetime('now') WHERE id = ?`, [status, target.id])
+    await run(`UPDATE users SET status = ?, updated_at = datetime('now') WHERE id = ?`, [status, target.id])
     if (status === 'disabled') {
-      run(`UPDATE sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL`, [target.id])
+      await run(`UPDATE sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL`, [target.id])
     }
-    audit({
+    await audit({
       actorUserId: ctx.user.id,
       actorEmail: ctx.user.email,
       actorRole: ctx.user.role,
@@ -542,25 +554,25 @@ export function registerAdminRoutes(router) {
     const role = ['ADMIN', 'SUPPORT', 'CUSTOMER'].includes(ctx.body?.role) ? ctx.body.role : 'ADMIN'
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw unprocessable('Email không hợp lệ.')
 
-    let user = one(`SELECT * FROM users WHERE email = ?`, [email])
+    let user = await one(`SELECT * FROM users WHERE email = ?`, [email])
     if (!user) {
       // Tạo sẵn tài khoản ở trạng thái "invited" với mật khẩu không thể đăng nhập.
       const unusableHash = await hashPassword(randomToken(48))
-      const result = run(
+      const result = await run(
         `INSERT INTO users (email, name, phone, password_hash, role, email_verified, status, created_at, updated_at)
          VALUES (?, ?, '', ?, 'CUSTOMER', 0, 'invited', datetime('now'), datetime('now'))`,
         [email, email.split('@')[0], unusableHash],
       )
-      user = one(`SELECT * FROM users WHERE id = ?`, [Number(result.lastInsertRowid)])
+      user = await one(`SELECT * FROM users WHERE id = ?`, [Number(result.lastInsertRowid)])
     }
 
     const token = randomToken(32)
-    run(
+    await run(
       `INSERT INTO email_tokens (token_hash, user_id, purpose, extra, expires_at) VALUES (?, ?, 'invite', ?, ?)`,
       [hashToken(token), user.id, role, new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()],
     )
 
-    audit({
+    await audit({
       actorUserId: ctx.user.id,
       actorEmail: ctx.user.email,
       actorRole: ctx.user.role,
@@ -597,8 +609,8 @@ export function registerAdminRoutes(router) {
       params.push(`%${ctx.query.actor}%`)
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
-    const total = one(`SELECT COUNT(*) AS c FROM audit_log ${whereSql}`, params).c
-    const rows = all(`SELECT * FROM audit_log ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, limit, offset])
+    const total = (await one(`SELECT COUNT(*) AS c FROM audit_log ${whereSql}`, params)).c
+    const rows = await all(`SELECT * FROM audit_log ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, limit, offset])
     return ctx.json(200, {
       entries: rows.map((r) => ({
         id: r.id,
@@ -621,7 +633,7 @@ export function registerAdminRoutes(router) {
 
   // ---------- Coupons ----------
   router.get('/api/admin/coupons', async (ctx) => {
-    const rows = all(`SELECT * FROM coupons ORDER BY code`)
+    const rows = await all(`SELECT * FROM coupons ORDER BY code`)
     return ctx.json(200, {
       coupons: rows.map((c) => ({
         code: c.code,
@@ -641,8 +653,8 @@ export function registerAdminRoutes(router) {
   router.post('/api/admin/coupons', async (ctx) => {
     const body = parse(couponSchema, ctx.body)
     const code = body.code.toUpperCase()
-    if (one(`SELECT code FROM coupons WHERE code = ?`, [code])) throw conflict('Mã coupon đã tồn tại.')
-    run(
+    if (await one(`SELECT code FROM coupons WHERE code = ?`, [code])) throw conflict('Mã coupon đã tồn tại.')
+    await run(
       `INSERT INTO coupons (code, type, value, min_order, max_discount, starts_at, ends_at, usage_limit, active, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
@@ -657,7 +669,7 @@ export function registerAdminRoutes(router) {
         body.active ? 1 : 0,
       ],
     )
-    audit({
+    await audit({
       actorUserId: ctx.user.id,
       actorEmail: ctx.user.email,
       actorRole: ctx.user.role,
@@ -674,9 +686,9 @@ export function registerAdminRoutes(router) {
   router.patch('/api/admin/coupons/:code', async (ctx) => {
     const body = parse(couponSchema.partial(), ctx.body)
     const code = String(ctx.params.code).toUpperCase()
-    const existing = one(`SELECT * FROM coupons WHERE code = ?`, [code])
+    const existing = await one(`SELECT * FROM coupons WHERE code = ?`, [code])
     if (!existing) throw notFound('Không tìm thấy mã coupon.')
-    run(
+    await run(
       `UPDATE coupons SET type = ?, value = ?, min_order = ?, max_discount = ?, starts_at = ?, ends_at = ?, usage_limit = ?, active = ? WHERE code = ?`,
       [
         body.type ?? existing.type,
@@ -690,7 +702,7 @@ export function registerAdminRoutes(router) {
         code,
       ],
     )
-    audit({
+    await audit({
       actorUserId: ctx.user.id,
       actorEmail: ctx.user.email,
       actorRole: ctx.user.role,
@@ -707,7 +719,7 @@ export function registerAdminRoutes(router) {
 
   // ---------- Contact messages ----------
   router.get('/api/admin/contact', async (ctx) => {
-    const rows = all(`SELECT * FROM contact_messages ORDER BY id DESC LIMIT 100`)
+    const rows = await all(`SELECT * FROM contact_messages ORDER BY id DESC LIMIT 100`)
     return ctx.json(200, {
       messages: rows.map((m) => ({
         id: m.id, name: m.name, email: m.email, phone: m.phone,
@@ -718,7 +730,7 @@ export function registerAdminRoutes(router) {
 
   // ---------- Settings ----------
   router.get('/api/admin/settings', async (ctx) => {
-    const rows = all(`SELECT * FROM settings`)
+    const rows = await all(`SELECT * FROM settings`)
     const obj = {}
     for (const r of rows) obj[r.key] = r.value
     return ctx.json(200, { settings: obj })
@@ -727,18 +739,18 @@ export function registerAdminRoutes(router) {
   router.put('/api/admin/settings', async (ctx) => {
     requireRole(ctx, ['SUPER_ADMIN'])
     const body = parse(settingsSchema, ctx.body)
-    const before = all(`SELECT * FROM settings`)
+    const before = await all(`SELECT * FROM settings`)
     const beforeObj = {}
     for (const r of before) beforeObj[r.key] = r.value
-    tx(() => {
+    await tx(async () => {
       for (const [key, value] of Object.entries(body)) {
-        run(
+        await run(
           `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
           [key, String(value)],
         )
       }
     })
-    audit({
+    await audit({
       actorUserId: ctx.user.id,
       actorEmail: ctx.user.email,
       actorRole: ctx.user.role,
@@ -755,7 +767,7 @@ export function registerAdminRoutes(router) {
 
   // ---------- Reviews ----------
   router.get('/api/admin/reviews', async (ctx) => {
-    const rows = all(
+    const rows = await all(
       `SELECT r.*, p.name AS product_name FROM reviews r LEFT JOIN products p ON p.id = r.product_id ORDER BY r.id DESC LIMIT 100`,
     )
     return ctx.json(200, {
@@ -769,10 +781,10 @@ export function registerAdminRoutes(router) {
   router.patch('/api/admin/reviews/:id', async (ctx) => {
     const status = ['published', 'hidden'].includes(ctx.body?.status) ? ctx.body.status : null
     if (!status) throw unprocessable('Trạng thái đánh giá không hợp lệ.')
-    const row = one(`SELECT * FROM reviews WHERE id = ?`, [ctx.params.id])
+    const row = await one(`SELECT * FROM reviews WHERE id = ?`, [ctx.params.id])
     if (!row) throw notFound('Không tìm thấy đánh giá.')
-    run(`UPDATE reviews SET status = ? WHERE id = ?`, [status, row.id])
-    audit({
+    await run(`UPDATE reviews SET status = ? WHERE id = ?`, [status, row.id])
+    await audit({
       actorUserId: ctx.user.id,
       actorEmail: ctx.user.email,
       actorRole: ctx.user.role,

@@ -109,18 +109,23 @@ test('đặt hàng khi giỏ trống bị từ chối', async () => {
 test('tồn kho bị trừ khi đặt hàng và trả lại khi hủy', async () => {
   const v = await createTestVariant({ price: 180000, stock: 10 })
   const { client } = await customerWithCart(v.variantId, 2)
-  const { one } = await import('../../server/db/index.js')
 
-  const before = one(`SELECT stock FROM variants WHERE id = ?`, [v.variantId]).stock
+  // Đọc tồn kho qua API công khai (không đụng DB trực tiếp → chạy được cả với D1)
+  const stockOf = async () => {
+    const res = await client.get(`/api/products/${v.slug}`)
+    return res.body.product.variants.find((x) => x.id === v.variantId).stock
+  }
+
+  const before = await stockOf()
   const order = await client.post('/api/orders', SHIPPING)
-  const mid = one(`SELECT stock FROM variants WHERE id = ?`, [v.variantId]).stock
+  const mid = await stockOf()
   assert.equal(mid, before - 2, 'khi đặt hàng phải trừ kho')
 
   const cancel = await client.post(`/api/orders/${order.body.order.id}/cancel`, {})
   assert.equal(cancel.status, 200)
   assert.equal(cancel.body.order.status, 'CANCELLED')
 
-  const after = one(`SELECT stock FROM variants WHERE id = ?`, [v.variantId]).stock
+  const after = await stockOf()
   assert.equal(after, before, 'khi hủy phải trả lại tồn kho')
 })
 

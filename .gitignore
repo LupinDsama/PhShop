@@ -15,5 +15,8 @@ data/
 *.db-shm
 *.db-wal
 
+# Cache/tạm của wrangler (Pages/Workers/D1)
+.wrangler/
+
 # Thư mục test tạm
 coverage/

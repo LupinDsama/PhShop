@@ -248,3 +248,15 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Nhật ký sự kiện realtime (dùng cho polling khi SSE không khả dụng, ví dụ trên
+-- Cloudflare Worker nơi mỗi request có thể chạy ở isolate riêng).
+-- channels lưu dạng "|user:5|admin|" để lọc bằng LIKE.
+CREATE TABLE IF NOT EXISTS events_log (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  channels   TEXT NOT NULL,
+  type       TEXT NOT NULL,
+  payload    TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_events_log_created ON events_log(created_at);

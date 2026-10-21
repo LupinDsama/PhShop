@@ -1,7 +1,7 @@
 /**
  * Helpers dùng chung cho đơn hàng: serialize, tạo mã đơn, đọc quyền sở hữu.
  */
-import { getDb, all, one, run } from '../db/index.js'
+import { all, one, run } from '../db/index.js'
 import { randomToken } from './password.js'
 import { STATUS_LABELS, PAYMENT_LABELS, PROGRESS_STEP } from './order-state.js'
 
@@ -11,20 +11,21 @@ export function generateOrderId() {
   return `PHS${stamp}${rand}`
 }
 
-export function getOrderRow(orderId) {
+export async function getOrderRow(orderId) {
   return one(`SELECT * FROM orders WHERE id = ?`, [orderId])
 }
 
-export function getOrderItems(orderId) {
+export async function getOrderItems(orderId) {
   return all(`SELECT * FROM order_items WHERE order_id = ? ORDER BY id`, [orderId])
 }
 
-export function getOrderEvents(orderId) {
-  return all(
+export async function getOrderEvents(orderId) {
+  const rows = await all(
     `SELECT id, type, from_status, to_status, payment_from, payment_to, actor_role, note, created_at
      FROM order_events WHERE order_id = ? ORDER BY id`,
     [orderId],
-  ).map((e) => ({
+  )
+  return rows.map((e) => ({
     id: e.id,
     type: e.type,
     fromStatus: e.from_status,
@@ -39,8 +40,8 @@ export function getOrderEvents(orderId) {
   }))
 }
 
-export function serializeOrder(order, { includeInternal = false } = {}) {
-  const items = getOrderItems(order.id)
+export async function serializeOrder(order, { includeInternal = false } = {}) {
+  const items = await getOrderItems(order.id)
   const base = {
     id: order.id,
     email: order.email,
@@ -81,34 +82,26 @@ export function serializeOrder(order, { includeInternal = false } = {}) {
   }
   if (includeInternal) {
     base.internalNote = order.internal_note || null
-    base.history = getOrderEvents(order.id)
+    base.history = await getOrderEvents(order.id)
   }
   return base
 }
 
-/** Chuyển đổi timestamp SQLite sang ISO để client parse nhất quán. */
-export function toIso(value) {
-  if (!value) return null
-  const str = String(value)
-  if (str.endsWith('Z') || str.includes('T')) return str
-  return `${str.replace(' ', 'T')}Z`
-}
-
-export function logOrderEvent(orderId, payload) {
-  const db = getDb()
-  db.prepare(
+export async function logOrderEvent(orderId, payload) {
+  await run(
     `INSERT INTO order_events (order_id, type, from_status, to_status, payment_from, payment_to, actor_user_id, actor_role, note)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    orderId,
-    payload.type || 'status_change',
-    payload.fromStatus ?? null,
-    payload.toStatus ?? null,
-    payload.paymentFrom ?? null,
-    payload.paymentTo ?? null,
-    payload.actorUserId ?? null,
-    payload.actorRole || 'SYSTEM',
-    payload.note || '',
+    [
+      orderId,
+      payload.type || 'status_change',
+      payload.fromStatus ?? null,
+      payload.toStatus ?? null,
+      payload.paymentFrom ?? null,
+      payload.paymentTo ?? null,
+      payload.actorUserId ?? null,
+      payload.actorRole || 'SYSTEM',
+      payload.note || '',
+    ],
   )
 }
 

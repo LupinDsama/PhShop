@@ -155,18 +155,29 @@ Kịch bản tự động (`tests/api/authorization.test.js` + `tests/api/orders
 |---|---|---|---|---|
 | R1 | Chưa có email thật (xác minh/reset/thông báo) | P1 | Cần SMTP/API key | Cấu hình `SMTP_*`, nối `server/lib/notify.js` |
 | R2 | Chưa tích hợp cổng thanh toán thật | P1 | Cần credentials MoMo | Cấu hình `PHSHOP_MOMO_API_KEY` + SDK chính thức; hiện API trả 409 rõ ràng, **không** giả lập thành công |
-| R3 | Rate limit chỉ trong bộ nhớ, mất khi restart / không dùng chung cho nhiều instance | P2 | Khi chạy 1 instance thì đủ | Khi scale nhiều instance: dùng Redis/KV/Durable Object |
+| R3 | Rate limit chỉ trong bộ nhớ, mất khi restart / không dùng chung cho nhiều instance | P2 | Khi chạy 1 instance thì đủ; trên Cloudflare Worker mỗi isolate có bộ đếm riêng | Khi scale nhiều instance: dùng Redis/KV/Durable Object |
 | R4 | Chưa có 2FA cho admin | P2 | Ngoài phạm vi hiện tại | Bật TOTP khi có nhiều admin |
 | R5 | Chưa có WAF/rate limit ở tầng CDN | P2 | Cần tài khoản Cloudflare | Cloudflare WAF rate limiting rules |
 | R6 | Ảnh sản phẩm lấy từ Unsplash CDN bên ngoài | P3 | Cần CDN riêng | Lưu ảnh trong bucket của dự án + CSP `img-src` |
 | R7 | Chưa có automated SAST/DAST trong CI | P2 | Cần pipeline | `npm audit`, `oxlint`, `eslint-plugin-security`, OWASP ZAP trên staging |
 
-## 11. Cách tái lập kiểm thử bảo mật
+## 11. Rủi ro đặc thù Cloudflare (đã xử lý)
+
+| # | Vấn đề | Ảnh hưởng | Cách xử lý |
+|---|---|---|---|
+| C1 | Cookie CSRF do domain API phát ra, JS của domain frontend không đọc được `document.cookie` | Mọi request thay đổi trạng thái trả **403** → không đăng nhập/đặt hàng được | Dùng **Pages Functions proxy** để frontend và API cùng origin; thêm fallback lấy token từ body response + tự refresh khi gặp 403 |
+| C2 | Nhiều `Set-Cookie` bị gộp thành một header `"a=1, b=2"` | Trình duyệt parse sai → cookie CSRF bị coi là HttpOnly → 403 | `Headers.append('set-cookie', …)` cho từng cookie (ở Worker lẫn proxy) |
+| C3 | Mỗi request ở isolate riêng → bộ nhớ in-memory (SSE, rate limit) không dùng chung | Sự kiện realtime có thể không tới client | Realtime dùng **SSE + polling** (bảng `events_log` trong D1); rate limit ghi rõ giới hạn (R3) |
+| C4 | `setInterval` ở global scope bị Worker chặn | Worker không khởi động | Timer khởi động **lazy** trong handler |
+
+## 12. Cách tái lập kiểm thử bảo mật
 
 ```bash
 npm install
-npm test                 # 105 test: unit + API integration + security (IDOR, RBAC, CSRF, rate limit)
+npm test                 # 106 test: unit + API integration + security (IDOR, RBAC, CSRF, rate limit)
 npm run test:e2e         # 25 test trình duyệt thật (2 phiên admin + khách, realtime)
+npm run test:e2e:dev     # 25 test trên dev server (bắt lỗi StrictMode)
+npm run test:d1          # 106 test trên Cloudflare Worker + D1 (cùng bộ test, DB khác nền tảng)
 npm run lint             # oxlint
 npm run build            # build production
 ```

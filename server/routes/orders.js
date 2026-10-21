@@ -9,7 +9,7 @@ import config from '../config.js'
 import { parse, orderCreateSchema } from '../lib/validate.js'
 import { conflict, notFound, badRequest, unprocessable } from '../lib/http.js'
 import { computeTotals, checkCoupon } from '../lib/pricing.js'
-import { generateOrderId, serializeOrder, logOrderEvent } from '../lib/orders.js'
+import { generateOrderId, serializeOrder, logOrderEvent, getOrderEvents } from '../lib/orders.js'
 import { assertTransition, ORDER_STATUSES } from '../lib/order-state.js'
 import { createPaymentIntent } from '../lib/payment.js'
 import { publish } from '../lib/events.js'
@@ -19,8 +19,8 @@ import { resolveCart } from './cart.js'
 
 const IDEMPOTENCY_HEADER = 'idempotency-key'
 
-function loadCartLines(cartId) {
-  const rows = all(
+async function loadCartLines(cartId) {
+  return all(
     `SELECT ci.id, ci.variant_id, ci.product_id, ci.quantity, ci.note,
             v.sku, v.color, v.size, v.price, v.stock, v.max_qty, v.status AS variant_status,
             p.name AS product_name, p.status AS product_status, p.production_days
@@ -30,7 +30,6 @@ function loadCartLines(cartId) {
      WHERE ci.cart_id = ? ORDER BY ci.id`,
     [cartId],
   )
-  return rows
 }
 
 export function registerOrderRoutes(router) {
@@ -41,14 +40,14 @@ export function registerOrderRoutes(router) {
     const idempotencyKey = String(ctx.headers[IDEMPOTENCY_HEADER] || '').trim()
     const scope = `user:${ctx.user.id}:POST:/api/orders`
     if (idempotencyKey) {
-      const stored = one(`SELECT * FROM idempotency_keys WHERE scope = ? AND key = ?`, [scope, idempotencyKey])
+      const stored = await one(`SELECT * FROM idempotency_keys WHERE scope = ? AND key = ?`, [scope, idempotencyKey])
       if (stored) {
         return ctx.json(stored.status_code, { ...JSON.parse(stored.response), replayed: true })
       }
     }
 
-    const cart = resolveCart(ctx)
-    const lines = loadCartLines(cart.id)
+    const cart = await resolveCart(ctx)
+    const lines = await loadCartLines(cart.id)
     if (!lines.length) throw badRequest('Giỏ hàng đang trống, không thể tạo đơn.')
 
     const unavailable = lines.filter(
@@ -73,7 +72,7 @@ export function registerOrderRoutes(router) {
     let coupon = null
     if (body.couponCode) {
       const code = body.couponCode.toUpperCase()
-      coupon = one(`SELECT * FROM coupons WHERE code = ?`, [code])
+      coupon = await one(`SELECT * FROM coupons WHERE code = ?`, [code])
       const subtotal = lines.reduce((s, l) => s + l.price * l.quantity, 0)
       const check = checkCoupon(coupon, subtotal)
       if (!check.ok) throw unprocessable(check.message)
@@ -87,7 +86,7 @@ export function registerOrderRoutes(router) {
     // Payment intent (không giả lập thành công)
     let payment
     try {
-      payment = createPaymentIntent({ orderId: 'pending', amount: totals.total, method: body.paymentMethod })
+      payment = createPaymentIntent({ method: body.paymentMethod })
     } catch (err) {
       if (err.code === 'payment_provider_not_configured' || err.code === 'payment_provider_not_implemented') {
         throw conflict(err.message)
@@ -98,10 +97,10 @@ export function registerOrderRoutes(router) {
     const orderId = generateOrderId()
     const maxLeadTime = lines.reduce((m, l) => Math.max(m, l.production_days || 0), 0)
 
-    const created = tx(() => {
+    const created = await tx(async () => {
       // Trừ kho có điều kiện → an toàn với request đồng thời.
       for (const line of lines) {
-        const res = run(
+        const res = await run(
           `UPDATE variants SET stock = stock - ?, updated_at = datetime('now') WHERE id = ? AND stock >= ?`,
           [line.quantity, line.variant_id, line.quantity],
         )
@@ -110,7 +109,7 @@ export function registerOrderRoutes(router) {
         }
       }
 
-      run(
+      await run(
         `INSERT INTO orders (id, user_id, email, recipient, phone, address, note, subtotal, discount, shipping_fee, total,
                              status, payment_method, payment_status, coupon_code, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_CONFIRMATION', ?, ?, ?, datetime('now'), datetime('now'))`,
@@ -133,7 +132,7 @@ export function registerOrderRoutes(router) {
       )
 
       for (const line of lines) {
-        run(
+        await run(
           `INSERT INTO order_items (order_id, product_id, variant_id, sku, product_name, color, size, unit_price, quantity, note, line_total)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
@@ -153,12 +152,12 @@ export function registerOrderRoutes(router) {
       }
 
       if (coupon) {
-        run(`UPDATE coupons SET used_count = used_count + 1 WHERE code = ?`, [coupon.code])
+        await run(`UPDATE coupons SET used_count = used_count + 1 WHERE code = ?`, [coupon.code])
       }
 
-      run(`DELETE FROM cart_items WHERE cart_id = ?`, [cart.id])
+      await run(`DELETE FROM cart_items WHERE cart_id = ?`, [cart.id])
 
-      logOrderEvent(orderId, {
+      await logOrderEvent(orderId, {
         type: 'created',
         toStatus: 'PENDING_CONFIRMATION',
         paymentTo: payment.status,
@@ -171,7 +170,7 @@ export function registerOrderRoutes(router) {
     })
 
     const payload = {
-      order: serializeOrder(created),
+      order: await serializeOrder(created),
       payment: {
         provider: payment.provider,
         status: payment.status,
@@ -182,7 +181,7 @@ export function registerOrderRoutes(router) {
 
     if (idempotencyKey) {
       try {
-        run(`INSERT INTO idempotency_keys (scope, key, status_code, response, created_at) VALUES (?, ?, ?, ?, datetime('now'))`, [
+        await run(`INSERT INTO idempotency_keys (scope, key, status_code, response, created_at) VALUES (?, ?, ?, ?, datetime('now'))`, [
           scope,
           idempotencyKey,
           201,
@@ -190,12 +189,12 @@ export function registerOrderRoutes(router) {
         ])
       } catch {
         // Đã có bản ghi (race) → trả về bản đã lưu.
-        const stored = one(`SELECT * FROM idempotency_keys WHERE scope = ? AND key = ?`, [scope, idempotencyKey])
+        const stored = await one(`SELECT * FROM idempotency_keys WHERE scope = ? AND key = ?`, [scope, idempotencyKey])
         if (stored) return ctx.json(stored.status_code, { ...JSON.parse(stored.response), replayed: true })
       }
     }
 
-    audit({
+    await audit({
       actorUserId: ctx.user.id,
       actorEmail: ctx.user.email,
       actorRole: ctx.user.role,
@@ -208,7 +207,7 @@ export function registerOrderRoutes(router) {
     })
 
     // Realtime: thông báo cho admin và cho chính user.
-    publish([`user:${ctx.user.id}`, 'admin'], {
+    await publish([`user:${ctx.user.id}`, 'admin'], {
       orderId,
       userId: ctx.user.id,
       status: 'PENDING_CONFIRMATION',
@@ -232,13 +231,15 @@ export function registerOrderRoutes(router) {
       params.push(status)
     }
     const whereSql = `WHERE ${where.join(' AND ')}`
-    const total = one(`SELECT COUNT(*) AS c FROM orders ${whereSql}`, params).c
-    const rows = all(
+    const total = (await one(`SELECT COUNT(*) AS c FROM orders ${whereSql}`, params)).c
+    const rows = await all(
       `SELECT * FROM orders ${whereSql} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
       [...params, limit, offset],
     )
+    const orders = []
+    for (const o of rows) orders.push(await serializeOrder(o))
     return ctx.json(200, {
-      orders: rows.map((o) => serializeOrder(o)),
+      orders,
       total,
       page,
       limit,
@@ -247,33 +248,34 @@ export function registerOrderRoutes(router) {
   })
 
   router.get('/api/orders/:id', async (ctx) => {
-    const order = one(`SELECT * FROM orders WHERE id = ?`, [ctx.params.id])
+    const order = await one(`SELECT * FROM orders WHERE id = ?`, [ctx.params.id])
     if (!order) throw notFound('Không tìm thấy đơn hàng.')
     // Chỉ chủ đơn (hoặc admin) được xem → chặn IDOR.
     if (order.user_id !== ctx.user.id && !['ADMIN', 'SUPER_ADMIN'].includes(ctx.user.role)) {
       throw notFound('Không tìm thấy đơn hàng.')
     }
-    return ctx.json(200, { order: serializeOrder(order, { includeInternal: ctx.user.role !== 'CUSTOMER' }) })
+    return ctx.json(200, { order: await serializeOrder(order, { includeInternal: ctx.user.role !== 'CUSTOMER' }) })
   })
 
   router.post('/api/orders/:id/cancel', async (ctx) => {
-    const order = one(`SELECT * FROM orders WHERE id = ?`, [ctx.params.id])
+    const order = await one(`SELECT * FROM orders WHERE id = ?`, [ctx.params.id])
     if (!order) throw notFound('Không tìm thấy đơn hàng.')
     if (order.user_id !== ctx.user.id) throw notFound('Không tìm thấy đơn hàng.')
 
     const check = assertTransition(order.status, 'CANCELLED', 'CUSTOMER', true)
     if (!check.ok) throw unprocessable(check.message, { code: check.code })
 
-    tx(() => {
+    await tx(async () => {
       // Trả lại tồn kho.
-      for (const item of all(`SELECT variant_id, quantity FROM order_items WHERE order_id = ?`, [order.id])) {
-        run(`UPDATE variants SET stock = stock + ? WHERE id = ?`, [item.quantity, item.variant_id])
+      const items = await all(`SELECT variant_id, quantity FROM order_items WHERE order_id = ?`, [order.id])
+      for (const item of items) {
+        await run(`UPDATE variants SET stock = stock + ? WHERE id = ?`, [item.quantity, item.variant_id])
       }
-      run(
+      await run(
         `UPDATE orders SET status = 'CANCELLED', version = version + 1, updated_at = datetime('now') WHERE id = ?`,
         [order.id],
       )
-      logOrderEvent(order.id, {
+      await logOrderEvent(order.id, {
         type: 'status_change',
         fromStatus: order.status,
         toStatus: 'CANCELLED',
@@ -283,7 +285,7 @@ export function registerOrderRoutes(router) {
       })
     })
 
-    audit({
+    await audit({
       actorUserId: ctx.user.id,
       actorEmail: ctx.user.email,
       actorRole: ctx.user.role,
@@ -296,7 +298,7 @@ export function registerOrderRoutes(router) {
       userAgent: ctx.userAgent,
     })
 
-    publish([`user:${order.user_id}`, 'admin'], {
+    await publish([`user:${order.user_id}`, 'admin'], {
       orderId: order.id,
       userId: order.user_id,
       status: 'CANCELLED',
@@ -304,12 +306,12 @@ export function registerOrderRoutes(router) {
       updatedAt: new Date().toISOString(),
     }, { type: 'order.updated' })
 
-    const updated = one(`SELECT * FROM orders WHERE id = ?`, [order.id])
-    return ctx.json(200, { order: serializeOrder(updated) })
+    const updated = await one(`SELECT * FROM orders WHERE id = ?`, [order.id])
+    return ctx.json(200, { order: await serializeOrder(updated) })
   })
 
   router.post('/api/orders/:id/return', async (ctx) => {
-    const order = one(`SELECT * FROM orders WHERE id = ?`, [ctx.params.id])
+    const order = await one(`SELECT * FROM orders WHERE id = ?`, [ctx.params.id])
     if (!order) throw notFound('Không tìm thấy đơn hàng.')
     if (order.user_id !== ctx.user.id) throw notFound('Không tìm thấy đơn hàng.')
 
@@ -317,11 +319,11 @@ export function registerOrderRoutes(router) {
     if (!check.ok) throw unprocessable(check.message, { code: check.code })
 
     const note = String(ctx.body?.note || '').slice(0, 500)
-    run(
+    await run(
       `UPDATE orders SET status = 'RETURN_REQUESTED', version = version + 1, updated_at = datetime('now') WHERE id = ?`,
       [order.id],
     )
-    logOrderEvent(order.id, {
+    await logOrderEvent(order.id, {
       type: 'status_change',
       fromStatus: order.status,
       toStatus: 'RETURN_REQUESTED',
@@ -329,7 +331,7 @@ export function registerOrderRoutes(router) {
       actorRole: 'CUSTOMER',
       note: note || 'Khách hàng yêu cầu trả hàng.',
     })
-    audit({
+    await audit({
       actorUserId: ctx.user.id,
       actorEmail: ctx.user.email,
       actorRole: ctx.user.role,
@@ -341,7 +343,7 @@ export function registerOrderRoutes(router) {
       ip: ctx.ip,
       userAgent: ctx.userAgent,
     })
-    publish([`user:${order.user_id}`, 'admin'], {
+    await publish([`user:${order.user_id}`, 'admin'], {
       orderId: order.id,
       userId: order.user_id,
       status: 'RETURN_REQUESTED',
@@ -349,17 +351,16 @@ export function registerOrderRoutes(router) {
       updatedAt: new Date().toISOString(),
     }, { type: 'order.updated' })
 
-    const updated = one(`SELECT * FROM orders WHERE id = ?`, [order.id])
-    return ctx.json(200, { order: serializeOrder(updated) })
+    const updated = await one(`SELECT * FROM orders WHERE id = ?`, [order.id])
+    return ctx.json(200, { order: await serializeOrder(updated) })
   })
 
   router.get('/api/orders/:id/events', async (ctx) => {
-    const order = one(`SELECT * FROM orders WHERE id = ?`, [ctx.params.id])
+    const order = await one(`SELECT * FROM orders WHERE id = ?`, [ctx.params.id])
     if (!order) throw notFound('Không tìm thấy đơn hàng.')
     if (order.user_id !== ctx.user.id && !['ADMIN', 'SUPER_ADMIN'].includes(ctx.user.role)) {
       throw notFound('Không tìm thấy đơn hàng.')
     }
-    const { getOrderEvents } = await import('../lib/orders.js')
-    return ctx.json(200, { events: getOrderEvents(order.id) })
+    return ctx.json(200, { events: await getOrderEvents(order.id) })
   })
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useCartStore } from '../store/cart'
 import { useAuth } from '../context/AuthContext'
@@ -23,9 +23,9 @@ export default function Checkout() {
   const [paymentMethods, setPaymentMethods] = useState([
     { value: 'COD', label: 'Thanh toán khi nhận hàng (COD)', enabled: true },
   ])
-  const idempotencyKey = useRef(
-    (globalThis.crypto?.randomUUID?.() || `key-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-  )
+  const [idempotencyKey, setIdempotencyKey] = useState(() => (
+    globalThis.crypto?.randomUUID?.() || `key-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  ))
 
   useEffect(() => {
     fetchCart().catch(() => {})
@@ -58,10 +58,10 @@ export default function Checkout() {
       }
       if (form.couponCode.trim()) payload.couponCode = form.couponCode.trim()
       const data = await api.post('/api/orders', payload, {
-        headers: { 'Idempotency-Key': idempotencyKey.current },
+        headers: { 'Idempotency-Key': idempotencyKey },
       })
-      // Tạo lại key sau khi đặt hàng thành công (đơn mới cần key mới).
-      idempotencyKey.current = globalThis.crypto?.randomUUID?.() || `key-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      // Tạo key mới cho đơn tiếp theo (đơn mới cần key mới).
+      setIdempotencyKey(globalThis.crypto?.randomUUID?.() || `key-${Date.now()}-${Math.random().toString(36).slice(2)}`)
       navigate(`/order/${data.order.id}?placed=1`)
     } catch (err) {
       setError(err.message)

@@ -28,25 +28,31 @@ quản lý phân quyền (RBAC), realtime (SSE) và bộ kiểm thử tự độ
 | Zod 4 | Validation input ở server |
 | Lucide React | Biểu tượng |
 | **Node.js 22 (node:http)** | **Backend API — không phụ thuộc runtime ngoài** |
-| **node:sqlite** | **Database (18 bảng, transaction, index)** |
-| **SSE (text/event-stream)** | **Realtime trạng thái đơn hàng** |
+| **node:sqlite / Cloudflare D1** | **Database (19 bảng, transaction, index)** |
+| **SSE + polling sự kiện** | **Realtime trạng thái đơn hàng** |
+| **Cloudflare Worker + Pages** | **Hạ tầng triển khai (API + frontend)** |
 | **node:test** | **130 test tự động (unit + API + E2E trình duyệt)** |
 
 ## Cấu trúc thư mục
 
 ```
 PhShop/
-├── server/                  # Backend Node.js
-│   ├── index.js             # HTTP server, router, static, error handling
-│   ├── config.js            # Cấu hình qua biến môi trường
+├── server/                  # Backend (lõi chung Node + Cloudflare Worker)
+│   ├── app.js               # Lõi xử lý HTTP đa nền tảng (route, CSRF, RBAC)
+│   ├── index.js             # Adapter Node (node:http) + phục vụ static
+│   ├── worker.js            # Adapter Cloudflare Worker (D1 + streaming)
+│   ├── config.js            # Cấu hình qua biến môi trường (getter → đọc lại mỗi lần)
 │   ├── db/
-│   │   ├── schema.sql       # 18 bảng + index + foreign key
-│   │   ├── index.js         # Kết nối SQLite + helper transaction
+│   │   ├── schema.sql       # 19 bảng + index + foreign key
+│   │   ├── index.js         # Dispatcher (chọn adapter theo nền tảng)
+│   │   ├── sqlite.js        # Adapter Node (node:sqlite)
+│   │   ├── d1.js            # Adapter Cloudflare D1
 │   │   └── seed-data.js     # Danh mục sản phẩm & coupon mẫu
 │   ├── lib/                 # http, security, session, password, pricing,
 │   │                        # order-state, payment, events, audit, orders, validate
 │   ├── routes/              # auth, products, cart, wishlist, orders, admin, events, misc
-│   └── scripts/             # seed.js, bootstrap-admin.js
+│   └── scripts/             # seed, bootstrap-admin, d1-reset, d1-cleanup
+├── functions/api/[[path]].js # Pages Function proxy /api/* → Worker (cùng origin)
 ├── src/
 │   ├── lib/
 │   │   ├── api.js           # Fetch wrapper: cookie phiên, CSRF, timeout, chuẩn hoá lỗi
@@ -67,10 +73,10 @@ PhShop/
 │       └── NotFound.jsx
 ├── tests/
 │   ├── unit/                # 17 test — pricing, order-state, password
-│   ├── api/                 # 88 test — auth, IDOR/RBAC, cart, orders, admin, realtime, security
+│   ├── api/                 # 89 test — auth, IDOR/RBAC, cart, orders, admin, realtime, security
 │   ├── e2e/browser-suite.mjs# 25 test trình duyệt thật
 │   └── helpers/server.js    # Test server + HTTP client có cookie jar
-├── scripts/                 # dev.mjs (chạy song song API+Vite), e2e.mjs
+├── scripts/                 # dev.mjs, e2e.mjs, test-d1.mjs
 └── docs/                    # Audit, Tasks, Security, Test report, Deployment
 ```
 
@@ -96,8 +102,10 @@ npm run lint        # oxlint
 ## Kiểm thử
 
 ```bash
-npm test            # 105 test: unit + API integration + security
-npm run test:e2e    # 25 test trình duyệt thật (build production rồi chạy)
+npm test               # 106 test: unit + API integration + security
+npm run test:e2e       # 25 test trình duyệt thật (build production rồi chạy)
+npm run test:e2e:dev   # 25 test trên dev server (bắt lỗi StrictMode)
+npm run test:d1        # 106 test trên Cloudflare Worker + D1 (wrangler dev)
 ```
 
 Kết quả: **130/130 PASS**, 0 lỗi console. Chi tiết: [`docs/TEST_REPORT.md`](docs/TEST_REPORT.md).
@@ -135,8 +143,8 @@ PHSHOP_ADMIN_PASSWORD='<mật khẩu mạnh>' npm run bootstrap:admin
 ### Đơn hàng & realtime
 - Tạo đơn: giá/tồn kho/thanh toán do server quyết định, `Idempotency-Key` chống tạo trùng.
 - State machine 10 trạng thái + trạng thái thanh toán riêng; ghi lịch sử mọi thay đổi.
-- Realtime SSE: trang đơn của khách cập nhật ngay khi admin đổi trạng thái
-  (kèm reconnect, replay `Last-Event-ID` và polling dự phòng).
+- Realtime: SSE (`/api/events`) + **polling sự kiện** (`/api/events/poll`, đọc từ bảng `events_log`).
+  Trang đơn của khách cập nhật ngay khi admin đổi trạng thái (kèm reconnect, replay `Last-Event-ID`).
 
 ### Admin Dashboard
 Tổng quan · Đơn hàng (tìm/lọc/phân trang/chi tiết/ghi chú) · Sản phẩm (CRUD) ·
@@ -154,14 +162,16 @@ Chi tiết & các rủi ro còn lại: [`docs/SECURITY_AUDIT.md`](docs/SECURITY_
 
 ## Deploy
 
-Xem [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — ba phương án, ưu tiên giữ backend trên Node host
-và frontend trên Cloudflare Pages.
+Kiến trúc đang chạy: **Cloudflare Pages** (SPA) + **Pages Function proxy** `/api/*` +
+**Cloudflare Worker** (API) + **Cloudflare D1** (database) — frontend và API cùng origin nên
+cookie phiên/CSRF hoạt động như bình thường.
 
 ```bash
-# Frontend lên Cloudflare Pages
-npm run build
-npx wrangler pages deploy dist --project-name phshop
+npm run deploy:api   # wrangler deploy -c wrangler.worker.toml  (Worker + D1)
+npm run deploy:web   # npm run build && wrangler pages deploy dist --project-name phshop
 ```
+
+Chi tiết (biến môi trường, seed D1, bootstrap admin, sao lưu): [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## License
 

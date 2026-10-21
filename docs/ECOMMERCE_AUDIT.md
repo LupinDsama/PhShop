@@ -9,14 +9,15 @@
 
 | Hạng mục | Trước audit | Sau audit |
 |---|---|---|
-| Backend | **Không có** — toàn bộ logic chạy trong trình duyệt | Node.js HTTP API (`server/`), 0 dependency runtime |
-| Cơ sở dữ liệu | Không có (localStorage) | SQLite qua `node:sqlite` (18 bảng, index, FK, transaction) |
+| Backend | **Không có** — toàn bộ logic chạy trong trình duyệt | Node.js HTTP API (`server/`), 0 dependency runtime — chạy được trên **Cloudflare Worker** và Node server nhờ lõi chung `server/app.js` |
+| Cơ sở dữ liệu | Không có (localStorage) | SQLite qua `node:sqlite` (Node) hoặc **Cloudflare D1** (Worker) — 19 bảng, index, FK, transaction |
 | Xác thực | localStorage, role suy ra từ email | Email + mật khẩu (scrypt), phiên cookie HttpOnly, RBAC 4 vai trò |
 | Phân quyền | Ẩn nút ở UI, kiểm tra ở client | Kiểm tra ở **server** cho mọi endpoint, audit log |
 | Đơn hàng | localStorage của từng trình duyệt | Bảng `orders` + `order_items` + `order_events` (lịch sử) |
-| Realtime | Không có (README tuyên bố sai) | SSE `/api/events` + replay `Last-Event-ID` + polling dự phòng |
+| Realtime | Không có (README tuyên bố sai) | SSE `/api/events` + **polling sự kiện** `/api/events/poll` (bảng `events_log`) — hoạt động trên cả Node lẫn Worker |
 | Thanh toán | Radio button, đánh dấu "đã thanh toán" tùy ý | Trạng thái thanh toán riêng, server kiểm tra, không giả lập thành công |
-| Kiểm thử | 0 test | 130 test tự động (node:test + browser thật) |
+| Triển khai | Chỉ static trên Cloudflare Pages | Pages (SPA) + Pages Function proxy + Worker (API) + D1 (DB) |
+| Kiểm thử | 0 test | 130 test tự động (node:test + browser thật) — chạy trên cả 2 nền tảng |
 
 ---
 
@@ -84,6 +85,11 @@
 | 18 | `Button asChild` truyền `disabled` cho `React.Fragment` | P3 | Sai cách dùng React.Fragment | `cloneElement` |
 | 19 | Import animation chặn tương tác | P3 | Không có nút bỏ qua ở một số trạng thái | Có nút "Bỏ qua", chỉ hiện 1 lần/session |
 | 20 | Không có 404 page | P3 | Thiếu | `/404` với điều hướng |
+| 21 | **Trang `/order` crash React #185** (đã xảy ra trên bản deploy cũ) | P2 | Selector zustand trả array mới mỗi lần → vòng lặp render vô hạn | Selector trả giá trị ổn định; test E2E cho `/order` |
+| 22 | **Cookie CSRF không đọc được khi frontend và API khác origin** → mọi POST trả 403 | P1 | Cookie do domain API phát ra, JS của domain Pages không đọc được `document.cookie` | Pages Function proxy → cùng origin; thêm fallback lấy token từ body + tự refresh khi 403 |
+| 23 | **Nhiều `Set-Cookie` bị gộp thành 1 header** → trình duyệt parse sai, cookie CSRF biến thành HttpOnly | P1 | Đưa mảng cookie vào object `headers` của `Response` | `Headers.append('set-cookie', …)` cho từng cookie (ở cả Worker và proxy) |
+| 24 | **D1: `meta.last_row_id` + `bind()` phải là varargs** → lỗi FK và "Wrong number of parameter bindings" | P1 | Dùng sai API của D1 | Đọc `last_row_id`, `bind(...params)`; toàn bộ 106 test chạy trên D1 |
+| 25 | **SSE không bảo đảm trên Cloudflare Worker** (mỗi request ở isolate riêng) | P2 | Bộ nhớ in-memory không dùng chung giữa request | Bảng `events_log` + endpoint polling `/api/events/poll`; client dùng song song SSE + polling |
 
 ---
 
@@ -132,20 +138,21 @@ Xem bảng mục 3.
 
 | Ưu tiên | Nội dung | Trạng thái |
 |---|---|---|
-| P0 | Backend API + DB + RBAC + xác thực | ✅ Hoàn thành (`server/`) |
+| P0 | Backend API + DB + RBAC + xác thực | ✅ Hoàn thành (`server/`) — chạy trên Node **và** Cloudflare Worker (D1) |
 | P0 | Chặn privilege escalation theo email | ✅ Hoàn thành |
+| P0 | Triển khai thật: Pages + proxy + Worker + D1 | ✅ Hoàn thành — `https://phshop.pages.dev` đã chạy đầy đủ |
 | P0 | Quản lý đơn hàng server-side + state machine + audit log | ✅ Hoàn thành |
 | P0 | Kiểm soát giá/tồn kho/idempotency ở server | ✅ Hoàn thành |
 | P1 | Giỏ & wishlist server-side, đồng bộ nhiều thiết bị | ✅ Hoàn thành |
-| P1 | Realtime SSE + polling dự phòng | ✅ Hoàn thành |
+| P1 | Realtime SSE + polling (đảm bảo trên mọi nền tảng) | ✅ Hoàn thành — SSE + `/api/events/poll` (bảng `events_log`) |
 | P1 | Admin Dashboard đầy đủ 8 module | ✅ Hoàn thành |
 | P1 | Bộ test API + security + E2E | ✅ Hoàn thành (130 test) |
 | P2 | CSRF, rate limit, security header, validation | ✅ Hoàn thành |
 | P2 | Trải nghiệm: loading/empty/error state, phân trang, 404 | ✅ Hoàn thành |
 | P3 | Code splitting, lazy ảnh, debounce, dọn lint | ✅ Hoàn thành |
-| — | Tích hợp cổng thanh toán thật (MoMo) | ⛔ **Blocker**: cần credentials + SDK chính thức → xem `docs/DEPLOYMENT.md` |
-| — | Gửi email thật (xác minh, reset mật khẩu, thông báo đơn) | ⛔ **Blocker**: cần SMTP/API key → xem `docs/DEPLOYMENT.md` |
-| — | Deploy API lên Cloudflare (Workers + D1) | ⛔ **Blocker**: cần tài khoản Cloudflare + viết lại tầng DB → xem `docs/DEPLOYMENT.md` |
+| — | Tích hợp cổng thanh toán thật (MoMo) | ⛔ **Blocker**: cần credentials + SDK chính thức → xem `docs/DEPLOYMENT.md` §4.1 |
+| — | Gửi email thật (xác minh, reset mật khẩu, thông báo đơn) | ⛔ **Blocker**: cần SMTP/API key → xem `docs/DEPLOYMENT.md` §4.2 |
+| — | Rate limit dùng chung giữa nhiều isolate Worker | ⛔ **Blocker**: cần KV/Durable Object khi scale → xem `docs/DEPLOYMENT.md` §8 |
 
 ---
 

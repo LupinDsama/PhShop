@@ -1,16 +1,20 @@
 /**
- * Client realtime dựa trên Server-Sent Events.
- * - Tự kết nối lại khi rớt mạng (exponential backoff).
- * - Hỗ trợ Last-Event-ID để server replay các sự kiện bị lỡ.
- * - Có cơ chế polling dự phòng khi SSE không khả dụng.
- * - Bỏ qua sự kiện trùng / đến sai thứ tự (dựa trên eventId tăng dần).
+ * Client realtime cho PhShop.
+ *
+ * Hai kênh được dùng song song:
+ *  1. SSE (`/api/events`) — đẩy ngay lập tức khi server dùng chung bộ nhớ
+ *     (Node server, hoặc Worker khi request rơi vào cùng isolate).
+ *  2. Polling (`/api/events/poll`) — luôn chạy, đảm bảo không bỏ sót sự kiện
+ *     trên Cloudflare Worker (mỗi request ở isolate riêng → SSE không đáng tin).
+ *
+ * Sự kiện trùng / đến sai thứ tự bị loại bằng `eventId` tăng dần.
  */
 const MAX_BACKOFF = 30000
-const POLL_INTERVAL = 15000
+const POLL_INTERVAL = 3000
 
-export function createRealtimeClient({ onEvent, onStatus, pollFn } = {}) {
+export function createRealtimeClient({ onEvent, onStatus, pollInterval = POLL_INTERVAL } = {}) {
   let source = null
-  let lastEventId = null
+  let lastEventId = 0
   let retryCount = 0
   let retryTimer = null
   let pollTimer = null
@@ -22,6 +26,37 @@ export function createRealtimeClient({ onEvent, onStatus, pollFn } = {}) {
     onStatus?.({ status, connected, ...extra })
   }
 
+  const handle = (payload, eventId) => {
+    if (!payload) return
+    const id = Number.parseInt(eventId, 10)
+    if (Number.isFinite(id)) {
+      if (lastEventId && id <= lastEventId) return // sự kiện trùng / sai thứ tự
+      lastEventId = id
+    }
+    onEvent?.(payload, { id })
+  }
+
+  // ---- Polling (luôn bật) ----
+  const startPolling = () => {
+    if (pollTimer || stopped) return
+    const tick = async () => {
+      if (stopped) return
+      try {
+        const res = await fetch(`/api/events/poll?since=${lastEventId}`, { credentials: 'include' })
+        if (!res.ok) return
+        const data = await res.json()
+        for (const evt of data.events || []) {
+          handle(evt.data, evt.id)
+        }
+        if (Number.isFinite(data.lastEventId) && data.lastEventId > lastEventId) {
+          lastEventId = data.lastEventId
+        }
+      } catch { /* mạng chập chờn → thử lại ở vòng sau */ }
+    }
+    pollTimer = setInterval(tick, pollInterval)
+    tick()
+  }
+
   const stopPolling = () => {
     if (pollTimer) {
       clearInterval(pollTimer)
@@ -29,58 +64,40 @@ export function createRealtimeClient({ onEvent, onStatus, pollFn } = {}) {
     }
   }
 
-  const startPolling = () => {
-    if (!pollFn || pollTimer) return
-    pollTimer = setInterval(() => {
-      pollFn().catch(() => {})
-    }, POLL_INTERVAL)
-  }
-
+  // ---- SSE (đường nhanh) ----
   const connect = () => {
     if (stopped) return
     if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
       setStatus('unsupported')
-      startPolling()
       return
     }
     try {
       source = new EventSource('/api/events', { withCredentials: true })
     } catch {
       setStatus('error')
-      startPolling()
       return
     }
 
     source.addEventListener('ready', () => {
       retryCount = 0
       setStatus('connected')
-      stopPolling()
     })
 
-    const handle = (event) => {
+    const onEvent = (event) => {
       let payload = null
       try { payload = JSON.parse(event.data) } catch { payload = null }
-      if (!payload) return
-      if (event.lastEventId) {
-        const id = Number.parseInt(event.lastEventId, 10)
-        if (Number.isFinite(id)) {
-          if (lastEventId !== null && id <= lastEventId) return // sự kiện trùng / sai thứ tự
-          lastEventId = id
-        }
-      }
-      onEvent?.(payload, event)
+      handle(payload, event.lastEventId)
     }
 
     for (const type of ['order.created', 'order.updated', 'product.updated', 'review.created']) {
-      source.addEventListener(type, handle)
+      source.addEventListener(type, onEvent)
     }
-    source.onmessage = handle
+    source.onmessage = onEvent
 
     source.onerror = () => {
       try { source.close() } catch { /* ignore */ }
       source = null
       setStatus('reconnecting')
-      startPolling()
       if (stopped) return
       retryCount += 1
       const delay = Math.min(1000 * 2 ** (retryCount - 1), MAX_BACKOFF)
@@ -89,6 +106,7 @@ export function createRealtimeClient({ onEvent, onStatus, pollFn } = {}) {
   }
 
   connect()
+  startPolling()
 
   return {
     stop() {
@@ -103,6 +121,7 @@ export function createRealtimeClient({ onEvent, onStatus, pollFn } = {}) {
       stopped = false
       retryCount = 0
       connect()
+      startPolling()
     },
     isConnected: () => connected,
   }

@@ -1,12 +1,16 @@
 /**
  * Helper khởi động server test trên port ngẫu nhiên với database tạm.
  * Mỗi test file chạy trong process riêng (node:test) nên env được set trước khi import.
+ *
+ * Nếu đặt PHSHOP_TEST_BASE_URL → dùng server đã chạy sẵn (ví dụ `wrangler dev`
+ * với D1) thay vì tự khởi động. Khi đó caller phải tự reset database trước.
  */
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
 
+const EXTERNAL_BASE_URL = process.env.PHSHOP_TEST_BASE_URL || null
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phshop-test-'))
 process.env.PHSHOP_DB_PATH = path.join(tmpDir, 'test.db')
 process.env.NODE_ENV = 'test'
@@ -21,15 +25,27 @@ process.env.PHSHOP_RL_CONTACT = '1000'
 process.env.PHSHOP_RL_ORDER = '1000'
 process.env.PHSHOP_RL_REVIEW = '1000'
 
+let currentBaseUrl = null
+
 export async function startTestServer() {
+  if (EXTERNAL_BASE_URL) {
+    currentBaseUrl = EXTERNAL_BASE_URL
+    return {
+      server: null,
+      baseUrl: EXTERNAL_BASE_URL,
+      external: true,
+      async close() { /* server bên ngoài tự quản lý */ },
+    }
+  }
   const { startServer } = await import('../../server/index.js')
   const { seed } = await import('../../server/scripts/seed.js')
-  seed({ silent: true })
+  await seed({ silent: true })
   const server = await startServer({ port: 0, host: '127.0.0.1' })
   const { port } = server.address()
+  currentBaseUrl = `http://127.0.0.1:${port}`
   return {
     server,
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: currentBaseUrl,
     async close() {
       // Đóng các stream SSE trước, nếu không server.close() sẽ không hoàn tất.
       try {
@@ -39,8 +55,8 @@ export async function startTestServer() {
       // Ngắt các socket keep-alive của undici để server.close() không bị treo.
       server.closeAllConnections?.()
       await new Promise((resolve) => server.close(resolve))
-      const { closeDb } = await import('../../server/db/index.js')
-      closeDb()
+      const { close } = await import('../../server/db/index.js')
+      close()
       try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
     },
   }
@@ -48,30 +64,72 @@ export async function startTestServer() {
 
 /** Tạo tài khoản quản trị qua đúng quy trình bootstrap của hệ thống. */
 export async function createAdmin(email = 'admin@test.local', password = 'AdminMatKhau@1', role = 'SUPER_ADMIN') {
+  if (EXTERNAL_BASE_URL) {
+    // Server bên ngoài: tài khoản admin phải được tạo sẵn (script bootstrap D1).
+    return { email, password, role }
+  }
   const { bootstrapAdmin } = await import('../../server/scripts/bootstrap-admin.js')
   await bootstrapAdmin({ email, password, role })
   return { email, password, role }
 }
 
+const ADMIN_TEST_ACCOUNT = { email: 'admin@test.local', password: 'AdminMatKhau@1' }
+let adminClientPromise = null
+
+async function getAdminClient(baseUrl) {
+  if (!adminClientPromise) {
+    adminClientPromise = (async () => {
+      const client = new TestClient(baseUrl)
+      const res = await client.login(ADMIN_TEST_ACCOUNT.email, ADMIN_TEST_ACCOUNT.password)
+      if (res.status !== 200) {
+        throw new Error(`Không đăng nhập được tài khoản admin test: HTTP ${res.status}`)
+      }
+      return client
+    })()
+  }
+  return adminClientPromise
+}
+
 /**
- * Tạo biến thể sản phẩm riêng cho test để các test không ảnh hưởng tồn kho của nhau.
+ * Tạo biến thể sản phẩm riêng cho test (qua API admin) để các test không ảnh
+ * hưởng tồn kho của nhau — hoạt động giống nhau cho Node server và D1.
  */
 export async function createTestVariant({ price = 100000, stock = 100, maxQty = 50 } = {}) {
-  const { run } = await import('../../server/db/index.js')
+  if (!currentBaseUrl) throw new Error('Chưa khởi động test server. Gọi startTestServer() trước.')
+  const admin = await getAdminClient(currentBaseUrl)
   const suffix = randomBytes(5).toString('hex')
-  const productId = `tp_${suffix}`
-  const variantId = `tv_${suffix}`
-  run(
-    `INSERT INTO products (id, slug, name, category, description, base_price, images, status, production_days, featured, created_at, updated_at)
-     VALUES (?, ?, 'Sản phẩm kiểm thử', 'figure', 'Dùng cho test', ?, '[]', 'active', 3, 0, datetime('now'), datetime('now'))`,
-    [productId, `test-product-${suffix}`, price],
-  )
-  run(
-    `INSERT INTO variants (id, product_id, sku, color, size, price, stock, min_qty, max_qty, status, lead_time_days, created_at, updated_at)
-     VALUES (?, ?, ?, 'Đỏ', '10cm', ?, ?, 1, ?, 'active', 3, datetime('now'), datetime('now'))`,
-    [variantId, productId, `TEST-${suffix.toUpperCase()}`, price, stock, maxQty],
-  )
-  return { productId, variantId, price, stock }
+  const res = await admin.post('/api/admin/products', {
+    name: 'Sản phẩm kiểm thử',
+    slug: `test-product-${suffix}`,
+    category: 'figure',
+    description: 'Dùng cho test',
+    basePrice: price,
+    images: [],
+    status: 'active',
+    productionDays: 3,
+    featured: false,
+    variants: [{
+      sku: `TEST-${suffix.toUpperCase()}`,
+      color: 'Đỏ',
+      size: '10cm',
+      price,
+      stock,
+      minQty: 1,
+      maxQty,
+      status: 'active',
+    }],
+  })
+  if (res.status !== 201) {
+    throw new Error(`Không tạo được biến thể test: HTTP ${res.status} ${JSON.stringify(res.body).slice(0, 200)}`)
+  }
+  const product = res.body.product
+  return {
+    productId: product.id,
+    variantId: product.variants[0].id,
+    slug: product.slug,
+    price,
+    stock,
+  }
 }
 
 /** Client HTTP giữ cookie jar + tự lấy CSRF token. */

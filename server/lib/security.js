@@ -60,6 +60,7 @@ export function applyCors(req, res) {
 const buckets = new Map()
 
 export function checkRateLimit(scope, identifier, opts = config.rateLimits.api) {
+  ensureCleanup()
   const { limit, windowMs } = opts
   const now = Date.now()
   const key = `${scope}:${identifier}`
@@ -89,29 +90,36 @@ export function resetRateLimit(scope, identifier) {
   buckets.delete(`${scope}:${identifier}`)
 }
 
-// Dọn bộ nhớ định kỳ
-const cleanup = setInterval(() => {
-  const now = Date.now()
-  const maxWindow = 60 * 60 * 1000
-  for (const [key, hits] of buckets) {
-    const kept = hits.filter((t) => t > now - maxWindow)
-    if (!kept.length) buckets.delete(key)
-    else buckets.set(key, kept)
-  }
-}, 5 * 60 * 1000)
-cleanup.unref?.()
+// Dọn bộ nhớ định kỳ — khởi động lazily vì Cloudflare Worker không cho phép
+// tạo timer ở global scope.
+let cleanupTimer = null
 
-/** Đảm bảo client có CSRF token (double-submit cookie). */
-export function ensureCsrfCookie(req, res, cookies) {
-  let token = cookies[CSRF_COOKIE]
-  if (!token) {
-    token = randomToken(24)
-    res.setHeader(
-      'Set-Cookie',
-      `${CSRF_COOKIE}=${encodeURIComponent(token)}; Path=/; SameSite=Strict; Max-Age=86400`,
-    )
-  }
-  return token
+function ensureCleanup() {
+  if (cleanupTimer) return
+  cleanupTimer = setInterval(() => {
+    const now = Date.now()
+    const maxWindow = 60 * 60 * 1000
+    for (const [key, hits] of buckets) {
+      const kept = hits.filter((t) => t > now - maxWindow)
+      if (!kept.length) buckets.delete(key)
+      else buckets.set(key, kept)
+    }
+  }, 5 * 60 * 1000)
+  cleanupTimer.unref?.()
+}
+
+/**
+ * Lấy (hoặc tạo) CSRF token cho double-submit cookie.
+ * Trả về { token, isNew } — isNew = true nghĩa là cần set cookie.
+ */
+export function ensureCsrfToken(cookies) {
+  const existing = cookies[CSRF_COOKIE]
+  if (existing) return { token: existing, isNew: false }
+  return { token: randomToken(24), isNew: true }
+}
+
+export function csrfCookieHeader(token) {
+  return `${CSRF_COOKIE}=${encodeURIComponent(token)}; Path=/; SameSite=Strict; Max-Age=86400`
 }
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
@@ -125,7 +133,6 @@ export function verifyCsrf(req, cookies) {
 }
 
 export function requireCsrf(req, cookies) {
-  if (!verifyCsrf(req, cookies)) {
-    throw forbidden('CSRF token không hợp lệ hoặc đã hết hạn. Vui lòng tải lại trang.')
-  }
+  if (verifyCsrf(req, cookies)) return
+  throw forbidden('CSRF token không hợp lệ hoặc đã hết hạn. Vui lòng tải lại trang.')
 }

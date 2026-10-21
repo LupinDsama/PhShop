@@ -1,8 +1,9 @@
 # PhShop — Báo cáo Kiểm thử
 
 > Ngày chạy: 21/10/2026 · Môi trường: Windows, Node v22.23.2, npm 10.9.8
-> Lệnh: `npm test` (unit + API), `npm run test:e2e` (trình duyệt thật, bản build production)
-> và `npm run test:e2e:dev` (trình duyệt thật trên dev server — bắt lỗi chỉ xảy ra ở StrictMode)
+> Lệnh: `npm test` (unit + API), `npm run test:e2e` (trình duyệt thật, bản build),
+> `npm run test:e2e:dev` (trình duyệt thật trên dev server — bắt lỗi StrictMode)
+> và `npm run test:d1` (Cloudflare Worker + D1 qua `wrangler dev`).
 
 ---
 
@@ -11,13 +12,20 @@
 | Bộ test | Lệnh | Tổng | Pass | Fail | Skip | Blocked |
 |---|---|---|---|---|---|---|
 | Unit (business logic) | `npm run test:unit` | 17 | 17 | 0 | 0 | 0 |
-| API integration + security | `npm run test:api` | 88 | 88 | 0 | 0 | 0 |
-| **Tổng API+Unit** | `npm test` | **105** | **105** | **0** | **0** | **0** |
+| API integration + security (Node) | `npm run test:api` | 89 | 89 | 0 | 0 | 0 |
+| **Tổng API+Unit** | `npm test` | **106** | **106** | **0** | **0** | **0** |
 | E2E trình duyệt thật (bản build production) | `npm run test:e2e` | 25 | 25 | 0 | 0 | 0 |
 | E2E trên dev server (Vite + StrictMode) | `npm run test:e2e:dev` | 25 | 25 | 0 | 0 | 0 |
-| **Tổng toàn bộ** | | **130** | **130** | **0** | **0** | **0** |
+| API test trên Cloudflare Worker + D1 | `npm run test:d1` | 106 | 103 | 0 | 3 | 0 |
+| **Tổ�ng toàn bộ** | | **130** | **130** | **0** | **3** | **0** |
 
-Thời gian: `npm test` ≈ 26 s · `npm run test:e2e` ≈ 90 s (gồm build production).
+> 3 test bị **skip** trên Worker là 3 test "SSE live delivery" (in-memory). Lý do: Cloudflare Worker
+> chạy mỗi request ở **isolate riêng** nên bộ nhớ in-memory không dùng chung giữa các request →
+> SSE không bảo đảm tới client. Hệ thống bù lại bằng **polling sự kiện** (`/api/events/poll`,
+> đọc từ bảng `events_log` trong D1) — kênh này **được test và pass trên cả hai nền tảng**.
+> Chi tiết: `docs/DEPLOYMENT.md` §4.3.
+
+Thời gian: `npm test` ≈ 30 s · `npm run test:e2e` ≈ 90 s · `npm run test:d1` ≈ 3 phút (reset DB cho từng file).
 
 > Lưu ý môi trường: hình ảnh sản phẩm lấy từ `images.unsplash.com` bị chặn bởi mạng của máy test
 > (`ERR_BLOCKED_BY_ORB`) — đây là hạn chế của môi trường, không phải lỗi ứng dụng; các test
@@ -186,6 +194,13 @@ Thời gian: `npm test` ≈ 26 s · `npm run test:e2e` ≈ 90 s (gồm build pro
 | 16 | Hỏng encoding tiếng Việt | Chuỗi lỗi trong log | `Set-Content` PowerShell ghi lại file UTF-8 | Chỉ dùng công cụ edit/write (UTF-8) cho file nguồn |
 | 17 | **App kẹt ở màn "Đang tải dữ liệu..." ở chế độ dev** | `/admin`, `/order`, `/profile` không render (chỉ xảy ra ở dev) | React StrictMode gọi effect 2 lần (mount → cleanup → mount); `mounted.current` không được set lại `true` nên `isReady` không bao giờ bật | Set `mounted.current = true` trong thân effect; bổ sung lệnh `npm run test:e2e:dev` để bắt lỗi chỉ xảy ra ở dev |
 | 18 | Route `/admin` cho khách chưa đăng nhập bị treo | Loader quay vô hạn | Cùng nguyên nhân #17 | Như #17; xác minh lại bằng `test:e2e:dev` (25/25 PASS) |
+| 19 | **Cookie CSRF không đọc được trên domain khác** | Mọi POST trả 403 khi frontend gọi thẳng Worker (khác origin) | Cookie CSRF do domain API phát ra → JS của Pages không đọc được `document.cookie` | Chuyển sang **Pages Functions proxy** để frontend và API cùng origin; thêm fallback lấy token từ body response + tự refresh khi gặp 403 |
+| 20 | **Nhiều `Set-Cookie` bị gộp thành 1 header** | `phshop_csrf` bị trình duyệt coi là HttpOnly → 403 | Đưa mảng cookie vào object `headers` của `Response`/`Headers` → API gộp thành `"a=1, b=2"` | Dùng `Headers.append('set-cookie', ...)` cho từng cookie ở cả Worker lẫn proxy |
+| 21 | **D1 trả `meta.last_row_id` (có gạch dưới)** | `lastInsertRowid` = NaN → lỗi FOREIGN KEY khi tạo token/đơn | Dùng sai tên field của D1 | Đọc `meta.last_row_id ?? meta.lastRowid` |
+| 22 | **`bind()` của D1 nhận varargs, không nhận mảng** | "Wrong number of parameter bindings" | Truyền `stmt.bind([a, b])` → D1 coi là 1 giá trị object | `stmt.bind(...params)`; bỏ `bind()` khi không có tham số |
+| 23 | **Worker không cho tạo timer ở global scope** | Worker không khởi động | `setInterval` ở module scope (heartbeat SSE, dọn rate limit) | Khởi động timer **lazy** trong handler đầu tiên |
+| 24 | **SSE không bảo đảm trên Worker** | Sự kiện đôi lúc không tới client | Mỗi request ở isolate riêng → bộ nhớ in-memory không dùng chung | Thêm **bảng `events_log` + endpoint polling** `/api/events/poll`; client dùng song song SSE + polling |
+| 25 | Sai thứ tự tham số trong query polling | Poll trả về rỗng | `[...params, from, limit]` sai thứ tự placeholder (`id > ?` đứng đầu) | `[from, ...params, limit]` |
 
 ---
 
@@ -193,11 +208,35 @@ Thời gian: `npm test` ≈ 26 s · `npm run test:e2e` ≈ 90 s (gồm build pro
 
 ```bash
 npm install
-npm test            # 105 test (unit + API) — ~26s
-npm run test:e2e    # 25 test trình duyệt thật (build + chạy) — ~90s
+npm test               # 106 test (unit + API) — ~30s
+npm run test:e2e       # 25 test trình duyệt thật trên bản build production — ~90s
 npm run test:e2e:dev   # 25 test trên dev server (bắt lỗi StrictMode) — ~90s
-npm run lint        # oxlint
-npm run build       # build production
+npm run test:d1        # 106 test trên Cloudflare Worker + D1 (wrangler dev) — ~3 phút
+npm run lint           # oxlint
+npm run build          # build production
 ```
 
 Kết quả E2E chi tiết được ghi ra `docs/e2e-results.json` sau mỗi lần chạy.
+
+---
+
+## 10. Kiểm chứng trên môi trường thật (production)
+
+Đã chạy trực tiếp bằng trình duyệt thật trên `https://phshop.pages.dev`
+(Pages + Pages Function proxy + Worker + D1):
+
+| Bước | Kết quả |
+|---|---|
+| Mở `/products` | ✅ 7 sản phẩm lấy từ D1, tồn kho hiển thị đúng |
+| Đăng ký tài khoản mới | ✅ Session trả về đúng email người dùng |
+| Thêm vào giỏ | ✅ Badge = 1 |
+| Refresh trang | ✅ Badge vẫn = 1 (lưu server-side, không phải localStorage) |
+| Tăng số lượng trong giỏ | ✅ Giỏ (2) → 500.000 ₫, tạm tính & tổng cộng cập nhật ngay |
+| Giảm số lượng | ✅ Giỏ (1) → 250.000 ₫ |
+| API `/api/cart` | ✅ count 1, subtotal 250000, total 250000 |
+| Checkout | ✅ Tạo đơn `PHSMVIAKQPUQ2BST`, trang "Đặt hàng thành công" |
+| Mở `/order` (chỗ trước đây crash React #185) | ✅ "Lịch sử đơn hàng — Tổng cộng 1 đơn hàng" |
+| Admin đăng nhập `nhantk123vip@gmail.com` | ✅ role `SUPER_ADMIN`, dashboard hiện "Realtime đang bật" + đơn mới |
+| Admin đổi trạng thái đơn | ✅ HTTP 200 |
+| Trang đơn của khách | ✅ Tự hiện trạng thái mới (không cần refresh) |
+| Lỗi console toàn trang | ✅ 0 |

@@ -42,7 +42,7 @@ function serializeProduct(p, variants = []) {
   }
 }
 
-export function listProducts(query = {}) {
+export async function listProducts(query = {}) {
   const where = []
   const params = []
   if (query.category && query.category !== 'all') {
@@ -65,34 +65,35 @@ export function listProducts(query = {}) {
   const page = Math.max(Number.parseInt(query.page, 10) || 1, 1)
   const offset = (page - 1) * limit
 
-  const total = one(`SELECT COUNT(*) AS c FROM products p ${whereSql}`, params).c
-  const rows = all(
+  const total = (await one(`SELECT COUNT(*) AS c FROM products p ${whereSql}`, params)).c
+  const rows = await all(
     `SELECT p.* FROM products p ${whereSql} ORDER BY p.featured DESC, p.created_at DESC, p.id LIMIT ? OFFSET ?`,
     [...params, limit, offset],
   )
-  const items = rows.map((p) => {
-    const variants = all(`SELECT * FROM variants WHERE product_id = ? ORDER BY id`, [p.id])
-    return serializeProduct(p, variants)
-  })
+  const items = []
+  for (const p of rows) {
+    const variants = await all(`SELECT * FROM variants WHERE product_id = ? ORDER BY id`, [p.id])
+    items.push(serializeProduct(p, variants))
+  }
   return { items, total, page, limit, totalPages: Math.ceil(total / limit) || 1 }
 }
 
-export function getProductBySlug(slug) {
-  const p = one(`SELECT * FROM products WHERE slug = ?`, [slug])
+export async function getProductBySlug(slug) {
+  const p = await one(`SELECT * FROM products WHERE slug = ?`, [slug])
   if (!p) return null
-  const variants = all(`SELECT * FROM variants WHERE product_id = ? ORDER BY id`, [p.id])
+  const variants = await all(`SELECT * FROM variants WHERE product_id = ? ORDER BY id`, [p.id])
   return serializeProduct(p, variants)
 }
 
-export function getProductById(id) {
-  const p = one(`SELECT * FROM products WHERE id = ?`, [id])
+export async function getProductById(id) {
+  const p = await one(`SELECT * FROM products WHERE id = ?`, [id])
   if (!p) return null
-  const variants = all(`SELECT * FROM variants WHERE product_id = ? ORDER BY id`, [p.id])
+  const variants = await all(`SELECT * FROM variants WHERE product_id = ? ORDER BY id`, [p.id])
   return serializeProduct(p, variants)
 }
 
-export function getCategories() {
-  const rows = all(
+export async function getCategories() {
+  const rows = await all(
     `SELECT category AS id, COUNT(*) AS count FROM products WHERE status = 'active' GROUP BY category ORDER BY category`,
   )
   return rows.map((r) => ({ id: r.id, count: r.count }))
@@ -100,24 +101,29 @@ export function getCategories() {
 
 export function registerProductRoutes(router) {
   router.get('/api/products', async (ctx) => {
-    const result = listProducts(ctx.query)
+    const result = await listProducts(ctx.query)
     return ctx.json(200, result)
   }, { auth: false })
 
   router.get('/api/products/categories', async (ctx) => {
-    return ctx.json(200, { categories: getCategories() })
+    return ctx.json(200, { categories: await getCategories() })
   }, { auth: false })
 
   router.get('/api/products/:slug', async (ctx) => {
-    const product = getProductBySlug(ctx.params.slug)
+    const product = await getProductBySlug(ctx.params.slug)
     if (!product) {
       return ctx.json(404, { error: { code: 'not_found', message: 'Không tìm thấy sản phẩm.' } })
     }
-    const related = all(
+    const relatedRows = await all(
       `SELECT p.* FROM products p WHERE p.category = ? AND p.id != ? AND p.status = 'active' LIMIT 4`,
       [product.category, product.id],
-    ).map((p) => serializeProduct(p, all(`SELECT * FROM variants WHERE product_id = ?`, [p.id])))
-    const reviews = all(
+    )
+    const related = []
+    for (const p of relatedRows) {
+      const variants = await all(`SELECT * FROM variants WHERE product_id = ?`, [p.id])
+      related.push(serializeProduct(p, variants))
+    }
+    const reviews = await all(
       `SELECT id, author, rating, comment, created_at FROM reviews WHERE product_id = ? AND status = 'published' ORDER BY id DESC LIMIT 10`,
       [product.id],
     )

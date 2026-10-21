@@ -20,7 +20,12 @@
     "test:unit": "node --disable-warning=ExperimentalWarning --test tests/unit/*.test.js",
     "test:api": "node --disable-warning=ExperimentalWarning --test tests/api/*.test.js",
     "test:e2e": "node scripts/e2e.mjs",
-    "test:e2e:dev": "node scripts/e2e.mjs --dev"
+    "test:e2e:dev": "node scripts/e2e.mjs --dev",
+    "test:d1": "node scripts/test-d1.mjs",
+    "deploy:api": "wrangler deploy -c wrangler.worker.toml",
+    "deploy:web": "npm run build && wrangler pages deploy dist --project-name phshop",
+    "db:reset": "node server/scripts/d1-reset.mjs --local",
+    "db:cleanup": "node server/scripts/d1-cleanup.mjs --remote"
   },
   "dependencies": {
     "autoprefixer": "^10.6.1",
